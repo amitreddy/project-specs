@@ -1,0 +1,1691 @@
+<!doctype html>
+<html lang="en" class="no-js" data-theme="executive">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Real-Time Order Events</title>
+<meta name="deck-title" content="Real-Time Order Events · Internal">
+
+<style>
+/* ==========================================================================
+   DeckKit engine.css — themes, layouts, builds, diagrams, chrome, print.
+   Stage is a fixed 1920x1080 canvas scaled to fit the viewport, so every
+   pixel value below is authored at 1080p and stays proportional everywhere.
+   ========================================================================== */
+
+/* ---------- Theme tokens ------------------------------------------------- */
+:root, [data-theme="executive"] {
+  --bg: #F6F4EF; --bg-outer: #E9E6DF; --surface: #FFFFFF; --surface-2: #F0EDE6;
+  --ink: #15171C; --ink-2: #474C57; --ink-3: #868B95; --line: #DDD8CD;
+  --accent: #2550C8; --accent-2: #B8862F; --accent-soft: rgba(37,80,200,.10);
+  --good: #1D8754; --warn: #B96E00; --bad: #BF3A28;
+  --font-display: "Iowan Old Style", "Charter", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  --font-body: "Inter", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  --display-weight: 600; --display-tracking: -0.015em;
+  --radius: 18px; --radius-sm: 10px;
+  --shadow: 0 1px 2px rgba(20,20,30,.06), 0 12px 32px -12px rgba(20,20,30,.18);
+  --glow: rgba(37,80,200,.35);
+  --deco: radial-gradient(1200px 700px at 100% 0%, rgba(37,80,200,.07), transparent 60%),
+          radial-gradient(900px 600px at 0% 100%, rgba(184,134,47,.07), transparent 60%);
+  color-scheme: light;
+}
+[data-theme="technical"] {
+  --bg: #0D1117; --bg-outer: #05070A; --surface: #151B23; --surface-2: #1C2430;
+  --ink: #E7ECF2; --ink-2: #A4AEBC; --ink-3: #6A7686; --line: #283240;
+  --accent: #4CC2FF; --accent-2: #A98BFA; --accent-soft: rgba(76,194,255,.12);
+  --good: #3FD08A; --warn: #F5B84A; --bad: #FF6B6B;
+  --font-display: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --display-weight: 650; --display-tracking: -0.025em;
+  --radius: 14px; --radius-sm: 8px;
+  --shadow: 0 0 0 1px rgba(255,255,255,.04), 0 16px 40px -16px rgba(0,0,0,.6);
+  --glow: rgba(76,194,255,.55);
+  --deco: radial-gradient(1000px 600px at 90% -10%, rgba(76,194,255,.10), transparent 60%),
+          radial-gradient(800px 500px at -10% 110%, rgba(169,139,250,.10), transparent 60%);
+  color-scheme: dark;
+}
+[data-theme="blueprint"] {
+  --bg: #0A1A35; --bg-outer: #050D1C; --surface: #0F2448; --surface-2: #143060;
+  --ink: #EAF2FF; --ink-2: #A9BEDF; --ink-3: #6F88B0; --line: #2A4A80;
+  --accent: #5EE1FF; --accent-2: #FFC857; --accent-soft: rgba(94,225,255,.12);
+  --good: #4BE3A0; --warn: #FFC857; --bad: #FF7A7A;
+  --font-display: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --display-weight: 600; --display-tracking: -0.02em;
+  --radius: 6px; --radius-sm: 4px;
+  --shadow: 0 0 0 1px rgba(94,225,255,.10), 0 18px 40px -18px rgba(0,0,0,.7);
+  --glow: rgba(94,225,255,.55);
+  --deco: linear-gradient(rgba(94,225,255,.06) 1px, transparent 1px) 0 0 / 48px 48px,
+          linear-gradient(90deg, rgba(94,225,255,.06) 1px, transparent 1px) 0 0 / 48px 48px,
+          linear-gradient(rgba(94,225,255,.10) 1px, transparent 1px) 0 0 / 240px 240px,
+          linear-gradient(90deg, rgba(94,225,255,.10) 1px, transparent 1px) 0 0 / 240px 240px;
+  color-scheme: dark;
+}
+[data-theme="product"] {
+  --bg: #FFFFFF; --bg-outer: #EEEDF3; --surface: #F6F5FA; --surface-2: #ECEAF4;
+  --ink: #121019; --ink-2: #4B4759; --ink-3: #8C889A; --line: #E3E0EC;
+  --accent: #6D3AE8; --accent-2: #F0466E; --accent-soft: rgba(109,58,232,.10);
+  --good: #12A36B; --warn: #D98500; --bad: #E0363C;
+  --font-display: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --display-weight: 750; --display-tracking: -0.035em;
+  --radius: 28px; --radius-sm: 14px;
+  --shadow: 0 2px 4px rgba(40,20,90,.05), 0 24px 48px -20px rgba(60,30,140,.25);
+  --glow: rgba(109,58,232,.45);
+  --deco: radial-gradient(900px 700px at 105% 105%, rgba(240,70,110,.10), transparent 60%),
+          radial-gradient(1000px 700px at 100% -10%, rgba(109,58,232,.12), transparent 60%);
+  color-scheme: light;
+}
+/* Shared tone helpers (nodes, chips, kpis) */
+[data-theme], :root {
+  --tone-default: var(--ink-2);
+  --ease-out: cubic-bezier(.16,1,.3,1);
+  --ease-in-out: cubic-bezier(.65,0,.35,1);
+  --dur: 560ms;
+  --stagger: 80ms;
+}
+
+/* ---------- Page & stage ------------------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg-outer); overflow: hidden; }
+body { font-family: var(--font-body); color: var(--ink); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+.deck { position: fixed; inset: 0; }
+.stage {
+  position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px;
+  transform: translate(-50%, -50%) scale(var(--scale, 1)); transform-origin: center;
+}
+
+/* ---------- Slide base --------------------------------------------------- */
+.slide {
+  position: absolute; inset: 0; overflow: hidden;
+  display: flex; flex-direction: column; gap: 40px;
+  padding: 96px 120px 110px;
+  background: var(--deco), var(--bg); color: var(--ink);
+  font-size: 30px; line-height: 1.45;
+  visibility: hidden; opacity: 0; pointer-events: none;
+}
+.slide.is-active, .slide.is-leaving { visibility: visible; opacity: 1; }
+.slide.is-active { pointer-events: auto; z-index: 2; }
+.slide.is-leaving { z-index: 1; }
+.slide > aside.notes { display: none !important; }
+.no-js .slide { position: relative; visibility: visible; opacity: 1; height: 1080px; }
+
+/* ---------- Typography --------------------------------------------------- */
+.slide h1, .slide h2, .slide h3 { font-family: var(--font-display); font-weight: var(--display-weight); letter-spacing: var(--display-tracking); margin: 0; line-height: 1.08; text-wrap: balance; }
+.slide h1 { font-size: 112px; }
+.slide h2 { font-size: 64px; }
+.slide h3 { font-size: 36px; line-height: 1.2; }
+.slide p { margin: 0; text-wrap: pretty; }
+.eyebrow { font-family: var(--font-mono); font-size: 20px; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.lead { font-size: 38px; line-height: 1.4; color: var(--ink-2); max-width: 1400px; text-wrap: pretty; }
+.muted { color: var(--ink-2); } .faint { color: var(--ink-3); }
+.small { font-size: 22px; } .mono { font-family: var(--font-mono); }
+.slide em { font-style: normal; color: var(--accent); }
+.slide strong { font-weight: 650; }
+.hl { background: linear-gradient(transparent 58%, var(--accent-soft) 58%); padding: 0 4px; }
+.slide a { color: var(--accent); }
+.slide header { display: flex; flex-direction: column; gap: 14px; }
+.slide header .lead { margin-top: 6px; }
+.grow { flex: 1; min-height: 0; }
+.row { display: flex; gap: 32px; align-items: center; }
+.stack { display: flex; flex-direction: column; gap: 20px; }
+.center { align-items: center; justify-content: center; text-align: center; }
+
+/* ---------- Layouts ------------------------------------------------------ */
+.slide[data-layout="title"] { justify-content: center; gap: 36px; padding-left: 160px; }
+.slide[data-layout="title"] h1 { max-width: 1500px; }
+.slide[data-layout="title"] .lead { max-width: 1250px; }
+.slide[data-layout="title"]::after {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 14px;
+  background: linear-gradient(var(--accent), var(--accent-2));
+}
+.meta { display: flex; gap: 40px; font-size: 24px; color: var(--ink-3); margin-top: 20px; }
+.meta span + span::before { content: "·"; margin-right: 40px; color: var(--line); }
+
+.slide[data-layout="section"] { justify-content: center; }
+.slide[data-layout="section"] .section-num { font-family: var(--font-mono); font-size: 200px; line-height: .9; color: transparent; -webkit-text-stroke: 2px var(--accent); opacity: .9; }
+.slide[data-layout="section"] h2 { font-size: 96px; max-width: 1500px; }
+
+.slide[data-layout="statement"] { justify-content: center; }
+.statement { font-family: var(--font-display); font-size: 84px; font-weight: var(--display-weight); letter-spacing: var(--display-tracking); line-height: 1.12; max-width: 1600px; text-wrap: balance; }
+
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 80px; align-items: center; flex: 1; min-height: 0; }
+.split.wide-left { grid-template-columns: 1.4fr 1fr; } .split.wide-right { grid-template-columns: 1fr 1.4fr; }
+.split > * { min-width: 0; min-height: 0; }
+
+.cards { display: grid; grid-template-columns: repeat(var(--cols, 3), 1fr); gap: 32px; align-items: stretch; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 40px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 16px; position: relative; overflow: hidden; }
+.card h3 { font-size: 36px; }
+.card p { color: var(--ink-2); font-size: 26px; }
+.card .kicker { font-family: var(--font-mono); font-size: 18px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
+.card.accent { border-color: var(--accent); background: linear-gradient(var(--accent-soft), transparent 70%), var(--surface); }
+.card.accent::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 6px; background: var(--accent); }
+
+.points { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 26px; }
+.points li { position: relative; padding-left: 48px; font-size: 32px; line-height: 1.4; }
+.points li::before { content: ""; position: absolute; left: 0; top: .55em; width: 18px; height: 18px; border-radius: 50%; background: var(--accent-soft); box-shadow: inset 0 0 0 4px var(--accent); }
+.points li small, .points li .sub { display: block; font-size: 24px; color: var(--ink-2); margin-top: 6px; }
+.points.numbered { counter-reset: n; }
+.points.numbered li::before { counter-increment: n; content: counter(n); width: 34px; height: 34px; top: .15em; display: grid; place-items: center; font: 600 20px var(--font-mono); color: var(--accent); background: var(--accent-soft); box-shadow: none; left: -6px; }
+
+.kpis { display: grid; grid-template-columns: repeat(var(--cols, 3), 1fr); gap: 32px; }
+.kpi { border-top: 3px solid var(--line); padding-top: 28px; display: flex; flex-direction: column; gap: 10px; }
+.kpi.accent { border-color: var(--accent); }
+.kpi-value { font-family: var(--font-display); font-size: 120px; font-weight: var(--display-weight); letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+.kpi-label { font-size: 26px; color: var(--ink-2); }
+.delta { font: 600 22px var(--font-mono); }
+.delta.up { color: var(--good); } .delta.down { color: var(--bad); }
+.delta.up::before { content: "▲ "; } .delta.down::before { content: "▼ "; }
+
+.bars { display: flex; flex-direction: column; gap: 22px; }
+.bar { display: grid; grid-template-columns: 300px 1fr 120px; gap: 24px; align-items: center; font-size: 24px; }
+.bar-track { height: 26px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.bar-fill { height: 100%; width: 0; border-radius: inherit; background: var(--bar-color, var(--accent)); transition: width 1100ms var(--ease-out); transition-delay: calc(var(--i, 0) * 90ms + 200ms); }
+.slide.is-active .bar-fill, .printing .bar-fill { width: calc(var(--v, 0) * 1%); }
+[data-step]:not(.is-shown) .bar-fill { width: 0 !important; }
+.bar-val { font: 600 24px var(--font-mono); text-align: right; }
+
+.timeline { position: relative; display: grid; grid-template-columns: repeat(var(--cols, 4), 1fr); gap: 32px; padding-top: 60px; }
+.timeline::before { content: ""; position: absolute; left: 0; right: 0; top: 18px; height: 4px; border-radius: 4px; background: var(--line); }
+.milestone { position: relative; display: flex; flex-direction: column; gap: 10px; }
+.milestone::before { content: ""; position: absolute; top: -52px; left: 0; width: 28px; height: 28px; border-radius: 50%; background: var(--bg); box-shadow: inset 0 0 0 4px var(--line); }
+.milestone.done::before { background: var(--accent); box-shadow: none; }
+.milestone.now::before { background: var(--bg); box-shadow: inset 0 0 0 6px var(--accent), 0 0 0 10px var(--accent-soft); }
+.milestone .when { font: 600 20px var(--font-mono); color: var(--accent); letter-spacing: .08em; text-transform: uppercase; }
+.milestone h3 { font-size: 32px; }
+.milestone p { font-size: 24px; color: var(--ink-2); }
+
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); flex: 1; min-height: 0; }
+.compare > * { padding: 48px; display: flex; flex-direction: column; gap: 20px; }
+.compare .before { background: var(--surface-2); }
+.compare .after { background: linear-gradient(var(--accent-soft), transparent 80%), var(--surface); border-left: 1px solid var(--line); }
+.compare .label { font: 600 20px var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+.compare .after .label { color: var(--accent); }
+
+.callout { border-left: 6px solid var(--accent); background: var(--accent-soft); padding: 28px 36px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-size: 28px; }
+.callout.warn { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.callout.bad { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.callout.good { border-color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
+
+.chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px; border-radius: 999px; font: 600 19px var(--font-mono); letter-spacing: .04em; background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line); }
+.chip.accent { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.chip.good { color: var(--good); } .chip.warn { color: var(--warn); } .chip.bad { color: var(--bad); }
+
+.table { width: 100%; border-collapse: collapse; font-size: 25px; }
+.table th { text-align: left; font: 600 18px var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); padding: 0 20px 16px; border-bottom: 2px solid var(--line); }
+.table td { padding: 20px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.table tr.accent td { background: var(--accent-soft); }
+.table td.num { text-align: right; font-family: var(--font-mono); }
+
+.ask { display: grid; gap: 24px; counter-reset: a; }
+.ask > * { counter-increment: a; display: grid; grid-template-columns: 80px 1fr; gap: 24px; align-items: start; padding: 28px 32px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.ask > *::before { content: counter(a, decimal-leading-zero); font: 600 40px var(--font-mono); color: var(--accent); }
+
+/* Code */
+pre.code { margin: 0; background: var(--code-bg, #0B0F14); color: #D7DEE8; border-radius: var(--radius); padding: 36px 0; font: 24px/1.55 var(--font-mono); overflow: hidden; border: 1px solid var(--line); counter-reset: ln; }
+pre.code .line { display: block; padding: 0 40px 0 0; transition: opacity 400ms var(--ease-out), background-color 400ms; }
+pre.code .line::before { counter-increment: ln; content: counter(ln); display: inline-block; width: 70px; padding-right: 22px; text-align: right; color: #4B5563; }
+pre.code.has-focus .line { opacity: .35; }
+pre.code.has-focus .line.is-focus { opacity: 1; background: rgba(76,194,255,.10); box-shadow: inset 4px 0 0 var(--accent); }
+pre.code .t-k { color: #C792EA; } pre.code .t-s { color: #C3E88D; } pre.code .t-c { color: #6B7A8C; font-style: italic; }
+pre.code .t-n { color: #F78C6C; } pre.code .t-t { color: #82AAFF; } pre.code .t-a { color: #FFCB6B; }
+
+/* Footer chrome (auto-injected) */
+.slide-footer { position: absolute; left: 120px; right: 120px; bottom: 40px; display: flex; justify-content: space-between; font: 500 18px var(--font-mono); letter-spacing: .08em; color: var(--ink-3); text-transform: uppercase; }
+
+/* ---------- Builds (progressive disclosure) ------------------------------ */
+.js [data-step] { transition: opacity var(--dur) var(--ease-out), transform var(--dur) var(--ease-out), filter var(--dur) var(--ease-out), clip-path 800ms var(--ease-out); transition-delay: calc(var(--i, 0) * var(--stagger)); }
+.js [data-step]:not(.is-shown) { opacity: 0; pointer-events: none; transition-delay: 0ms; }
+.js [data-step]:not(.is-shown):not([data-anim]), .js [data-step][data-anim="fade-up"]:not(.is-shown) { transform: translateY(28px); }
+.js [data-anim="fade"]:not(.is-shown) { transform: none; }
+.js [data-anim="fade-down"]:not(.is-shown) { transform: translateY(-28px); }
+.js [data-anim="slide-left"]:not(.is-shown) { transform: translateX(60px); }
+.js [data-anim="slide-right"]:not(.is-shown) { transform: translateX(-60px); }
+.js [data-anim="scale"]:not(.is-shown) { transform: scale(.92); }
+.js [data-anim="blur"]:not(.is-shown) { filter: blur(14px); transform: scale(1.03); }
+.js [data-anim="wipe"]:not(.is-shown) { opacity: 1; clip-path: inset(0 100% 0 0); }
+.js [data-anim="wipe"] { clip-path: inset(0 0 0 0); }
+/* Emphasis: elements that dim when a later step happens */
+.js [data-dim-after].is-dimmed { opacity: .32; }
+/* Transient focus while one step is current */
+.js .is-shown.is-current-step[data-anim="pop"], .js [data-anim="pop"].is-shown { transform: none; }
+.js [data-anim="pop"]:not(.is-shown) { transform: scale(.6); }
+
+/* ---------- Diagrams ----------------------------------------------------- */
+.diagram { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 18px; }
+.diagram > svg { flex: 1; min-height: 0; width: 100%; height: 100%; overflow: visible; }
+.diagram-caption { min-height: 46px; font-size: 28px; color: var(--ink-2); text-align: center; transition: opacity 300ms; }
+.diagram-caption b, .diagram-caption strong { color: var(--ink); }
+.diagram-legend { display: flex; gap: 32px; justify-content: center; font-size: 20px; color: var(--ink-3); font-family: var(--font-mono); }
+.diagram-legend span { display: inline-flex; align-items: center; gap: 10px; }
+.diagram-legend i { display: inline-block; width: 36px; height: 0; border-top: 3px solid var(--sw, var(--ink-3)); }
+.diagram-legend i.dashed { border-top-style: dashed; }
+.diagram-legend i.box { width: 22px; height: 22px; border: 3px solid var(--sw); border-radius: 5px; background: color-mix(in srgb, var(--sw) 18%, transparent); }
+
+.dg { --c: var(--ink-3); }
+.dg .tone-default { --c: var(--ink-2); } .dg .tone-accent { --c: var(--accent); } .dg .tone-accent2 { --c: var(--accent-2); }
+.dg .tone-good { --c: var(--good); } .dg .tone-warn { --c: var(--warn); } .dg .tone-bad { --c: var(--bad); } .dg .tone-muted { --c: var(--ink-3); }
+
+.dg .el { transition: opacity 450ms var(--ease-out); }
+.dg .el.is-hidden { opacity: 0; pointer-events: none; }
+.dg .el.is-dim { opacity: .18; }
+.dg .node-body { transform-box: fill-box; transform-origin: center; }
+.dg .shape { fill: var(--surface); stroke: var(--c); stroke-width: 2.5; transition: stroke 300ms, fill 300ms, filter 300ms; }
+.dg .shape-fill { fill: color-mix(in srgb, var(--c) 14%, var(--surface)); }
+.dg .shape-accent { fill: color-mix(in srgb, var(--c) 28%, var(--surface)); stroke: var(--c); stroke-width: 2.5; }
+.dg .node.tone-default .shape { stroke: var(--line); stroke-width: 2.5; }
+.dg .node.is-ext .shape { stroke-dasharray: 10 8; fill: transparent; }
+.dg .node-label { fill: var(--ink); font-family: var(--font-body); font-weight: 600; text-anchor: middle; dominant-baseline: central; }
+.dg .node-sub { fill: var(--ink-3); font-family: var(--font-mono); font-weight: 500; text-anchor: middle; dominant-baseline: central; }
+.dg .node-badge rect { fill: var(--c); } .dg .node-badge text { fill: var(--bg); font: 700 15px var(--font-mono); letter-spacing: .06em; text-anchor: middle; dominant-baseline: central; }
+.dg .node.tone-default .node-badge rect { fill: var(--ink-2); }
+.dg .node.is-hl .shape { stroke: var(--accent); stroke-width: 4; filter: drop-shadow(0 0 14px var(--glow)); }
+.dg .node.is-hl.tone-good .shape { stroke: var(--good); } .dg .node.is-hl.tone-warn .shape { stroke: var(--warn); } .dg .node.is-hl.tone-bad .shape { stroke: var(--bad); }
+.dg .node.is-pulse .node-body { animation: dg-pulse 1.6s var(--ease-in-out) infinite; }
+@keyframes dg-pulse { 50% { transform: scale(1.045); } }
+
+.dg .edge path.line { fill: none; stroke: var(--c); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; transition: stroke 300ms, stroke-width 300ms; }
+.dg .edge.tone-default path.line { stroke: var(--ink-3); }
+.dg .edge.is-dashed path.line { stroke-dasharray: 10 9; }
+.dg .edge.is-dotted path.line { stroke-dasharray: 2 9; }
+.dg .edge.is-active path.line, .dg .edge.is-hl path.line { stroke: var(--flow-c, var(--accent)); stroke-width: 3.5; }
+.dg .edge.is-active path.line { stroke-dasharray: 10 10; animation: dg-march .7s linear infinite; }
+@keyframes dg-march { to { stroke-dashoffset: -20; } }
+.dg .edge-label rect { fill: var(--bg); stroke: var(--line); stroke-width: 1.5; }
+.dg .edge-label text { fill: var(--ink-2); font: 500 19px var(--font-mono); text-anchor: middle; dominant-baseline: central; }
+.dg .edge.is-active .edge-label rect, .dg .edge.is-hl .edge-label rect { stroke: var(--flow-c, var(--accent)); }
+.dg .edge.is-active .edge-label text, .dg .edge.is-hl .edge-label text { fill: var(--ink); }
+
+.dg .group rect.zone { fill: color-mix(in srgb, var(--c) 6%, transparent); stroke: color-mix(in srgb, var(--c) 55%, transparent); stroke-width: 2; stroke-dasharray: 8 7; }
+.dg .group.is-solid rect.zone { stroke-dasharray: none; }
+.dg .group.tone-default { --c: var(--ink-3); }
+.dg .group text { fill: var(--c); font: 600 18px var(--font-mono); letter-spacing: .12em; text-transform: uppercase; }
+.dg .group.is-hl rect.zone { stroke: var(--accent); stroke-dasharray: none; fill: var(--accent-soft); }
+.dg .lane rect { fill: color-mix(in srgb, var(--ink) 3%, transparent); stroke: var(--line); stroke-width: 1.5; }
+.dg .lane:nth-of-type(even) rect { fill: transparent; }
+.dg .lane text { fill: var(--ink-2); font: 600 20px var(--font-mono); letter-spacing: .1em; text-transform: uppercase; }
+
+.dg .packet circle.core { fill: var(--flow-c, var(--accent)); }
+.dg .packet circle.halo { fill: var(--flow-c, var(--accent)); opacity: .25; }
+.dg .packet text { fill: var(--ink); font: 700 16px var(--font-mono); text-anchor: middle; }
+.dg .packet rect { fill: var(--bg); stroke: var(--flow-c, var(--accent)); stroke-width: 1.5; }
+
+/* Sequence */
+.dg .seq-head rect { fill: var(--surface); stroke: var(--c); stroke-width: 2.5; }
+.dg .seq-head.tone-default rect { stroke: var(--line); }
+.dg .lifeline { stroke: var(--line); stroke-width: 2; stroke-dasharray: 6 8; }
+.dg .msg path { fill: none; stroke: var(--ink-3); stroke-width: 2.5; }
+.dg .msg.is-reply path { stroke-dasharray: 9 8; }
+.dg .msg text { fill: var(--ink-2); font: 500 21px var(--font-mono); text-anchor: middle; }
+.dg .msg.is-current path { stroke: var(--accent); stroke-width: 3.5; }
+.dg .msg.is-current text { fill: var(--ink); font-weight: 700; }
+.dg .msg.tone-bad path { stroke: var(--bad); } .dg .msg.tone-good path { stroke: var(--good); } .dg .msg.tone-warn path { stroke: var(--warn); }
+.dg .seq-note rect { fill: color-mix(in srgb, var(--accent-2) 16%, var(--surface)); stroke: color-mix(in srgb, var(--accent-2) 60%, transparent); stroke-width: 1.5; }
+.dg .seq-note text { fill: var(--ink); font: 500 20px var(--font-body); text-anchor: middle; dominant-baseline: central; }
+
+/* ---------- Deck chrome -------------------------------------------------- */
+.deck-progress { position: fixed; left: 0; top: 0; height: 4px; width: 100%; transform-origin: left; transform: scaleX(var(--p, 0)); background: linear-gradient(90deg, var(--accent), var(--accent-2)); z-index: 50; transition: transform 500ms var(--ease-out); }
+.deck-overlay { position: fixed; z-index: 60; background: rgba(10,12,16,.92); color: #E8ECF2; font: 18px/1.5 var(--font-body); border-radius: 14px; padding: 22px 26px; box-shadow: 0 20px 60px rgba(0,0,0,.5); display: none; }
+.deck-overlay.is-open { display: block; }
+.deck-notes { left: 24px; right: 24px; bottom: 24px; max-height: 34vh; overflow: auto; font-size: 20px; }
+.deck-notes h4 { margin: 0 0 8px; font: 600 13px var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: #8FA0B5; }
+.deck-help { right: 24px; top: 24px; width: 380px; }
+.deck-help kbd { font: 600 13px var(--font-mono); background: #262C36; border: 1px solid #39414E; border-radius: 6px; padding: 2px 8px; margin-right: 8px; display: inline-block; min-width: 28px; text-align: center; }
+.deck-help div { display: flex; justify-content: space-between; padding: 4px 0; }
+.deck-blackout { position: fixed; inset: 0; background: #000; z-index: 70; display: none; }
+.deck-blackout.is-open { display: block; }
+
+/* Overview grid */
+.deck.is-overview { overflow: auto; }
+.deck.is-overview .stage { position: static; transform: none; width: auto; height: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 28px; padding: 40px; }
+.deck.is-overview .slide { position: relative; inset: auto; width: 1920px; height: 1080px; zoom: .2; visibility: visible; opacity: 1; pointer-events: auto; cursor: pointer; border-radius: 30px; outline: 8px solid transparent; transition: outline-color 200ms; }
+.deck.is-overview .slide:hover { outline-color: var(--ink-3); }
+.deck.is-overview .slide.is-active { outline-color: var(--accent); }
+
+/* ---------- Reduced motion ---------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .js [data-step] { transition-duration: 1ms !important; transition-delay: 0ms !important; }
+  .dg .edge.is-active path.line, .dg .node.is-pulse .node-body { animation: none; }
+  .bar-fill { transition-duration: 1ms; }
+}
+
+/* ---------- Print / PDF -------------------------------------------------- */
+@page { size: 1920px 1080px; margin: 0; }
+@media print {
+  html, body { overflow: visible; height: auto; background: none; }
+  .deck { position: static; }
+  .stage { position: static; transform: none; width: 1920px; height: auto; }
+  .slide { position: relative; inset: auto; width: 1920px; height: 1080px; visibility: visible !important; opacity: 1 !important; break-after: page; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .deck-progress, .deck-overlay, .deck-blackout { display: none !important; }
+  .js [data-step] { transition: none !important; }
+}
+
+</style>
+<script>
+/* ==========================================================================
+   DeckKit engine.js — zero-dependency presentation runtime.
+
+   Object model
+   ------------
+   Deck            owns slides, navigation, hash, keyboard/touch, chrome, print
+   Slide           owns its Builds + Components; knows its step count
+   Build           an element with data-step (CSS-driven reveal)
+   Component       base class for anything with internal steps
+     ├ FlowDiagram       nodes / edges / groups / lanes + animated packets
+     ├ SequenceDiagram   participants + messages, one message per step
+     ├ CodeBlock         line-range focus per step + light syntax colouring
+     └ CountUp           animated number when it becomes visible
+   FlowAnimator    rAF loop moving packets along SVG paths
+   PresenterView   second window with notes, timer, next slide
+   Motion          easing/duration tokens + WAAPI helper (honours reduced motion)
+
+   Extend:  DeckKit.Deck.register('.my-thing', MyComponent)  before load.
+   ========================================================================== */
+(function () {
+  'use strict';
+
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const STAGE = { w: 1920, h: 1080 };
+
+  /* ---------------------------------------------------------------- Motion */
+  const Motion = {
+    reduced: window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches,
+    ease: { out: 'cubic-bezier(.16,1,.3,1)', inOut: 'cubic-bezier(.65,0,.35,1)', spring: 'cubic-bezier(.34,1.45,.64,1)' },
+    dur: { fast: 220, base: 560, slow: 900 },
+    play(el, frames, opts = {}) {
+      if (!el || !el.animate) return null;
+      const o = Object.assign({ duration: this.dur.base, easing: this.ease.out, fill: 'none' }, opts);
+      if (this.reduced) { o.duration = 1; o.delay = 0; }
+      try { return el.animate(frames, o); } catch (e) { return null; }
+    },
+  };
+
+  /* --------------------------------------------------------------- helpers */
+  function svgEl(tag, attrs, parent) {
+    const el = document.createElementNS(SVGNS, tag);
+    if (attrs) for (const k in attrs) if (attrs[k] !== undefined && attrs[k] !== null) el.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(el);
+    return el;
+  }
+  function parseRanges(spec) { // "1-3,5" -> Set{1,2,3,5}
+    const out = new Set();
+    String(spec).split(',').forEach(part => {
+      const [a, b] = part.trim().split('-').map(Number);
+      if (!isNaN(a)) for (let i = a; i <= (isNaN(b) ? a : b); i++) out.add(i);
+    });
+    return out;
+  }
+  const arr = v => (v == null ? [] : Array.isArray(v) ? v : [v]);
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  function readJSON(el) {
+    const s = el.querySelector(':scope > script[type="application/json"]');
+    if (!s) return null;
+    try { return JSON.parse(s.textContent); }
+    catch (e) { console.error('[DeckKit] Invalid diagram JSON', el, e); return null; }
+  }
+
+  /* -------------------------------------------------------------- Component */
+  class Component {
+    constructor(el, slide) {
+      this.el = el; this.slide = slide;
+      this.start = parseInt(el.dataset.stepStart || '1', 10);
+    }
+    get stepCount() { return 0; }
+    get lastStep() { return this.stepCount ? this.start + this.stepCount - 1 : 0; }
+    localStep(k) { return clamp(k - this.start + 1, 0, this.stepCount); }
+    setStep(_k, _ctx) {}
+    enter() {} leave() {}
+  }
+
+  /* ------------------------------------------------------------------ Build */
+  class Build {
+    constructor(el) {
+      this.el = el;
+      this.step = parseInt(el.dataset.step, 10) || 1;
+      this.until = el.dataset.until ? parseInt(el.dataset.until, 10) : null;
+      this.dimAfter = el.dataset.dimAfter ? parseInt(el.dataset.dimAfter, 10) : null;
+    }
+    get lastStep() { return Math.max(this.step, this.until != null ? this.until + 1 : 0, this.dimAfter != null ? this.dimAfter : 0); }
+    apply(k) {
+      const shown = k >= this.step && (this.until == null || k <= this.until);
+      this.el.classList.toggle('is-shown', shown);
+      this.el.classList.toggle('is-current-step', k === this.step);
+      if (this.dimAfter != null) this.el.classList.toggle('is-dimmed', k >= this.dimAfter);
+    }
+  }
+
+  /* ---------------------------------------------------------- FlowAnimator */
+  class FlowAnimator {
+    constructor(layer) { this.layer = layer; this.flows = []; this.raf = 0; this.t0 = 0; }
+    /** route: [{path: SVGPathElement, reverse: bool}] */
+    add(route, opts) {
+      const segs = route.map(r => ({ path: r.path, reverse: r.reverse, len: r.path.getTotalLength() }));
+      const total = segs.reduce((s, x) => s + x.len, 0);
+      if (!total) return;
+      const f = {
+        segs, total,
+        speed: 520 * (opts.speed || 1),             // viewBox px / second
+        count: opts.count || 1,
+        loop: opts.loop !== false,
+        delay: opts.delay || 0,
+        color: opts.color, label: opts.label,
+        packets: [],
+      };
+      for (let i = 0; i < f.count; i++) f.packets.push(this.makePacket(f));
+      this.flows.push(f);
+      if (!this.raf) { this.t0 = performance.now(); this.raf = requestAnimationFrame(t => this.tick(t)); }
+    }
+    makePacket(f) {
+      const g = svgEl('g', { class: 'packet' }, this.layer);
+      if (f.color) g.style.setProperty('--flow-c', f.color);
+      svgEl('circle', { class: 'halo', r: 16 }, g);
+      svgEl('circle', { class: 'core', r: 8 }, g);
+      if (f.label) {
+        const tg = svgEl('g', { transform: 'translate(0,-30)' }, g);
+        const rect = svgEl('rect', { rx: 8, height: 28, y: -20 }, tg);
+        const tx = svgEl('text', { y: 0 }, tg); tx.textContent = f.label;
+        const w = (tx.getComputedTextLength ? tx.getComputedTextLength() : f.label.length * 10) + 18;
+        rect.setAttribute('width', w); rect.setAttribute('x', -w / 2);
+      }
+      g.style.opacity = 0;
+      return g;
+    }
+    pointAt(f, d) {
+      for (const s of f.segs) {
+        if (d <= s.len) return s.path.getPointAtLength(s.reverse ? s.len - d : d);
+        d -= s.len;
+      }
+      const last = f.segs[f.segs.length - 1];
+      return last.path.getPointAtLength(last.reverse ? 0 : last.len);
+    }
+    tick(now) {
+      const t = (now - this.t0) / 1000;
+      for (const f of this.flows) {
+        const travel = f.total / f.speed;                 // seconds for one trip
+        const gap = Math.max(travel / f.count, 0.35);
+        const cycle = f.loop ? Math.max(travel, gap * f.count) + 0.5 : Infinity;
+        f.packets.forEach((p, i) => {
+          let local = t - f.delay - i * gap;
+          if (f.loop && local > 0) local = local % cycle;
+          if (local < 0 || local > travel) { p.style.opacity = 0; return; }
+          const d = (local / travel) * f.total;
+          const pt = this.pointAt(f, d);
+          const edgeFade = Math.min(1, local / 0.15, (travel - local) / 0.15);
+          p.style.opacity = edgeFade;
+          p.setAttribute('transform', `translate(${pt.x.toFixed(1)},${pt.y.toFixed(1)})`);
+        });
+      }
+      this.raf = this.flows.length ? requestAnimationFrame(tt => this.tick(tt)) : 0;
+    }
+    clear() {
+      cancelAnimationFrame(this.raf); this.raf = 0;
+      this.flows.forEach(f => f.packets.forEach(p => p.remove()));
+      this.flows = [];
+    }
+  }
+
+  /* -------------------------------------------------------- Diagram (base) */
+  const TONES = ['default', 'accent', 'accent2', 'good', 'warn', 'bad', 'muted'];
+  const TONE_VAR = { default: 'var(--ink-3)', accent: 'var(--accent)', accent2: 'var(--accent-2)', good: 'var(--good)', warn: 'var(--warn)', bad: 'var(--bad)', muted: 'var(--ink-3)' };
+
+  class Diagram extends Component {
+    static create(el, slide) {
+      const spec = readJSON(el);
+      if (!spec) return null;
+      return spec.type === 'sequence' ? new SequenceDiagram(el, slide, spec) : new FlowDiagram(el, slide, spec);
+    }
+    constructor(el, slide, spec) {
+      super(el, slide);
+      this.spec = spec;
+      this.svg = svgEl('svg', { class: 'dg', role: 'img', 'aria-label': spec.title || 'diagram', preserveAspectRatio: 'xMidYMid meet' });
+      el.appendChild(this.svg);
+      this.defs = svgEl('defs', null, this.svg);
+      this.markers();
+      this.caption = null;
+      if ((spec.steps || []).some(s => s.caption) || spec.caption) {
+        this.caption = document.createElement('div');
+        this.caption.className = 'diagram-caption';
+        this.caption.innerHTML = spec.caption || '';
+        el.appendChild(this.caption);
+      }
+      if (spec.legend) this.legend(spec.legend);
+    }
+    markers() {
+      this.uid = 'dg' + Math.random().toString(36).slice(2, 8);
+      for (const t of TONES) {
+        for (const kind of ['end', 'start']) {
+          const m = svgEl('marker', { id: `${this.uid}-${kind}-${t}`, viewBox: '0 0 12 12', refX: 10, refY: 6, markerWidth: 16, markerHeight: 16, orient: 'auto-start-reverse', markerUnits: 'userSpaceOnUse' }, this.defs);
+          const p = svgEl('path', { d: 'M1,1 L11,6 L1,11 L3.5,6 Z' }, m);
+          p.style.fill = TONE_VAR[t];
+        }
+      }
+    }
+    markerUrl(kind, tone) { return `url(#${this.uid}-${kind}-${TONES.includes(tone) ? tone : 'default'})`; }
+    legend(items) {
+      const lg = document.createElement('div'); lg.className = 'diagram-legend';
+      items.forEach(it => {
+        const s = document.createElement('span');
+        const i = document.createElement('i');
+        if (it.style === 'dashed' || it.style === 'async') i.className = 'dashed';
+        if (it.style === 'box') i.className = 'box';
+        i.style.setProperty('--sw', TONE_VAR[it.tone || 'default']);
+        s.append(i, document.createTextNode(it.label));
+        lg.appendChild(s);
+      });
+      this.el.appendChild(lg);
+    }
+    setCaption(html, animate) {
+      if (!this.caption || this.caption.innerHTML === html) return;
+      this.caption.innerHTML = html;
+      if (animate) Motion.play(this.caption, [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 420 });
+    }
+    /** Fit a label into maxW: shrink, then wrap to 2 lines. Returns the <text>. */
+    fitText(parent, str, { x = 0, y = 0, size = 26, min = 15, maxW = 180, cls = 'node-label', lineH = 1.15 }) {
+      const t = svgEl('text', { class: cls, x, y }, parent);
+      const words = String(str).split(/\s+/);
+      const render = (fs) => {
+        t.textContent = ''; t.setAttribute('font-size', fs);
+        const one = svgEl('tspan', { x }, t); one.textContent = str;
+        if (one.getComputedTextLength() <= maxW || words.length === 1) return one.getComputedTextLength() <= maxW;
+        // greedy 2-line split at the most balanced point
+        t.textContent = '';
+        let best = null;
+        for (let i = 1; i < words.length; i++) {
+          const a = words.slice(0, i).join(' '), b = words.slice(i).join(' ');
+          const diff = Math.abs(a.length - b.length);
+          if (!best || diff < best.diff) best = { a, b, diff };
+        }
+        const l1 = svgEl('tspan', { x, dy: `${-lineH / 2}em` }, t); l1.textContent = best.a;
+        const l2 = svgEl('tspan', { x, dy: `${lineH}em` }, t); l2.textContent = best.b;
+        return Math.max(l1.getComputedTextLength(), l2.getComputedTextLength()) <= maxW;
+      };
+      let fs = size;
+      while (!render(fs) && fs > min) fs -= 1;
+      return t;
+    }
+  }
+
+  /* ------------------------------------------------------------ FlowDiagram */
+  class FlowDiagram extends Diagram {
+    constructor(el, slide, spec) {
+      super(el, slide, spec);
+      this.steps = spec.steps || [];
+      const [cw, ch] = spec.cell || [270, 160];
+      const [nw, nh] = spec.node || [210, 92];
+      this.cw = cw; this.ch = ch; this.nw = nw; this.nh = nh;
+      this.nodes = new Map(); this.edges = new Map(); this.groups = new Map();
+      this.layout();
+      this.layers = {
+        lanes: svgEl('g', { class: 'layer-lanes' }, this.svg),
+        groups: svgEl('g', { class: 'layer-groups' }, this.svg),
+        edges: svgEl('g', { class: 'layer-edges' }, this.svg),
+        nodes: svgEl('g', { class: 'layer-nodes' }, this.svg),
+        labels: svgEl('g', { class: 'layer-labels' }, this.svg),
+        packets: svgEl('g', { class: 'layer-packets' }, this.svg),
+      };
+      this.flow = new FlowAnimator(this.layers.packets);
+      this.drawLanes(); this.drawGroups(); this.drawNodes(); this.drawEdges();
+      this.computeInitial();
+      this.applied = -1;
+    }
+    get stepCount() { return this.steps.length; }
+
+    /* --- geometry --- */
+    layout() {
+      const s = this.spec;
+      const nodes = s.nodes || [];
+      let maxC = 0, maxR = 0;
+      nodes.forEach(n => { const [c, r] = n.at || [0, 0]; maxC = Math.max(maxC, c); maxR = Math.max(maxR, r); });
+      (s.lanes || []).forEach((l, i) => { maxR = Math.max(maxR, (l.row != null ? l.row : i) + (l.span || 1) - 1); });
+      this.cols = (s.grid && s.grid[0]) || maxC + 1;
+      this.rows = (s.grid && s.grid[1]) || maxR + 1;
+      this.padL = (s.lanes ? 200 : 40); this.pad = 40;
+      // Fit-to-box: stretch cells (never shrink) so the grid uses the space the slide gives it.
+      if (s.fit !== false) {
+        const r = this.svg.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          const box = r.width / r.height;
+          const W0 = this.padL + this.cols * this.cw + this.pad, H0 = this.pad * 2 + this.rows * this.ch;
+          const cap = s.maxStretch || 1.9;
+          if (W0 / H0 < box) this.cw *= Math.min(cap, ((box * H0) - this.padL - this.pad) / (this.cols * this.cw));
+          else this.ch *= Math.min(cap, ((W0 / box) - this.pad * 2) / (this.rows * this.ch));
+        }
+      }
+      this.W = this.padL + this.cols * this.cw + this.pad;
+      this.H = this.pad * 2 + this.rows * this.ch;
+      this.svg.setAttribute('viewBox', `0 0 ${Math.round(this.W)} ${Math.round(this.H)}`);
+    }
+    center(at) { return { x: this.padL + (at[0] + 0.5) * this.cw, y: this.pad + (at[1] + 0.5) * this.ch }; }
+
+    /* --- lanes (swimlanes) --- */
+    drawLanes() {
+      (this.spec.lanes || []).forEach((ln, i) => {
+        const row = ln.row != null ? ln.row : i, span = ln.span || 1;
+        const g = svgEl('g', { class: 'lane el', 'data-id': ln.id || `lane${i}` }, this.layers.lanes);
+        svgEl('rect', { x: 8, y: this.pad + row * this.ch + 4, width: this.W - 16, height: span * this.ch - 8, rx: 10 }, g);
+        const t = svgEl('text', { x: 36, y: this.pad + (row + span / 2) * this.ch, 'dominant-baseline': 'central' }, g);
+        t.textContent = ln.label;
+      });
+    }
+    /* --- nodes --- */
+    drawNodes() {
+      (this.spec.nodes || []).forEach(n => {
+        const c = this.center(n.at || [0, 0]);
+        const kind = n.kind || 'service';
+        let w = (n.size && n.size[0]) || this.nw, h = (n.size && n.size[1]) || this.nh;
+        if (kind === 'decision') { w = (n.size && n.size[0]) || this.nw * 1.05; h = (n.size && n.size[1]) || this.nh * 1.45; }
+        if (kind === 'actor' || kind === 'user') { w = (n.size && n.size[0]) || this.nw; h = (n.size && n.size[1]) || 120; }
+        const tone = n.tone || (['start', 'end', 'terminal'].includes(kind) ? 'accent' : 'default');
+        const g = svgEl('g', { class: `node el tone-${tone}${kind === 'external' ? ' is-ext' : ''}`, 'data-id': n.id, transform: `translate(${c.x},${c.y})` }, this.layers.nodes);
+        const body = svgEl('g', { class: 'node-body' }, g);
+        const box = this.drawShape(body, kind, w, h);
+        const inner = box.inner;
+        const hasSub = !!n.sub;
+        const lt = this.fitText(body, n.label || n.id, { x: 0, y: box.labelY + (hasSub ? -12 : 0), size: n.fontSize || 26, maxW: inner, cls: 'node-label' });
+        const wrapped = lt.childNodes.length > 1;
+        if (hasSub) {
+          if (wrapped) lt.setAttribute('y', box.labelY - 18);
+          this.fitText(body, n.sub, { x: 0, y: box.labelY + (wrapped ? 32 : 22), size: 18, min: 13, maxW: inner, cls: 'node-sub' });
+        }
+        if (n.badge) {
+          const bg = svgEl('g', { class: 'node-badge', transform: `translate(${-w / 2 + 14},${-h / 2})` }, body);
+          const r = svgEl('rect', { rx: 8, height: 26, y: -13 }, bg);
+          const t = svgEl('text', { x: 0, y: 1 }, bg); t.textContent = n.badge;
+          const bw = t.getComputedTextLength() + 18; r.setAttribute('width', bw); t.setAttribute('x', bw / 2);
+        }
+        const title = svgEl('title', null, g); title.textContent = n.tip || [n.label, n.sub].filter(Boolean).join(' — ');
+        this.nodes.set(n.id, { spec: n, g, body, x: c.x, y: c.y, w, h, kind, box });
+      });
+    }
+    drawShape(g, kind, w, h) {
+      const hw = w / 2, hh = h / 2;
+      let inner = w - 32, labelY = 0, sides = { l: -hw, r: hw, t: -hh, b: hh, cy: 0 };
+      switch (kind) {
+        case 'db': case 'database': {
+          const ry = Math.min(16, h * 0.16);
+          svgEl('path', { class: 'shape', d: `M${-hw},${-hh + ry} A${hw},${ry} 0 0 1 ${hw},${-hh + ry} V${hh - ry} A${hw},${ry} 0 0 1 ${-hw},${hh - ry} Z` }, g);
+          svgEl('ellipse', { class: 'shape shape-fill', cx: 0, cy: -hh + ry, rx: hw, ry }, g);
+          labelY = ry * 0.6; break;
+        }
+        case 'queue': case 'topic': case 'stream': {
+          svgEl('rect', { class: 'shape', x: -hw, y: -hh, width: w, height: h, rx: 12 }, g);
+          for (const dx of [14, 24]) {
+            svgEl('line', { class: 'shape', x1: -hw + dx, x2: -hw + dx, y1: -hh + 14, y2: hh - 14 }, g);
+            svgEl('line', { class: 'shape', x1: hw - dx, x2: hw - dx, y1: -hh + 14, y2: hh - 14 }, g);
+          }
+          inner = w - 70; break;
+        }
+        case 'actor': case 'user': {
+          const r = 30, cy = -hh + r;
+          svgEl('circle', { class: 'shape shape-fill', cx: 0, cy, r }, g);
+          svgEl('circle', { class: 'shape', cx: 0, cy: cy - 7, r: 9, style: 'fill:none' }, g);
+          svgEl('path', { class: 'shape', d: `M-16,${cy + 19} Q0,${cy - 4} 16,${cy + 19}`, style: 'fill:none' }, g);
+          labelY = cy + r + 28; inner = w;
+          sides = { l: -r, r: r, t: -hh, b: hh, cy };
+          break;
+        }
+        case 'decision': {
+          svgEl('polygon', { class: 'shape', points: `0,${-hh} ${hw},0 0,${hh} ${-hw},0` }, g);
+          inner = w * 0.62; break;
+        }
+        case 'start': case 'end': case 'terminal': {
+          svgEl('rect', { class: 'shape shape-accent', x: -hw, y: -hh, width: w, height: h, rx: hh }, g);
+          break;
+        }
+        case 'function': case 'lambda': {
+          const k = h * 0.32;
+          svgEl('polygon', { class: 'shape', points: `${-hw + k},${-hh} ${hw - k},${-hh} ${hw},0 ${hw - k},${hh} ${-hw + k},${hh} ${-hw},0` }, g);
+          inner = w - 2 * k; break;
+        }
+        case 'note': {
+          const f = 22;
+          svgEl('path', { class: 'shape shape-fill', d: `M${-hw},${-hh} H${hw - f} L${hw},${-hh + f} V${hh} H${-hw} Z` }, g);
+          break;
+        }
+        case 'cache': {
+          svgEl('rect', { class: 'shape', x: -hw, y: -hh, width: w, height: h, rx: 12 }, g);
+          svgEl('rect', { class: 'shape shape-fill', x: -hw + 8, y: -hh + 8, width: w - 16, height: h - 16, rx: 7, 'stroke-dasharray': '4 6' }, g);
+          inner = w - 40; break;
+        }
+        default: { // service | process | external | box | gateway
+          svgEl('rect', { class: 'shape', x: -hw, y: -hh, width: w, height: h, rx: kind === 'gateway' ? hh : 14 }, g);
+          if (kind === 'gateway') inner = w - h;
+        }
+      }
+      return { inner, labelY, sides };
+    }
+    /* --- groups (boundaries) --- */
+    drawGroups() {
+      (this.spec.groups || []).forEach(gr => {
+        const tone = gr.tone || 'default';
+        const g = svgEl('g', { class: `group el tone-${tone}${gr.style === 'solid' ? ' is-solid' : ''}`, 'data-id': gr.id }, this.layers.groups);
+        this.groups.set(gr.id, { spec: gr, g });
+      });
+    }
+    sizeGroups() {
+      this.groups.forEach(({ spec, g }) => {
+        let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+        (spec.nodes || []).forEach(id => {
+          const n = this.nodes.get(id); if (!n) return;
+          x1 = Math.min(x1, n.x - n.w / 2); x2 = Math.max(x2, n.x + n.w / 2);
+          y1 = Math.min(y1, n.y - n.h / 2); y2 = Math.max(y2, n.y + n.h / 2);
+        });
+        if (!isFinite(x1)) return;
+        const pad = spec.pad || 26, top = 46;
+        g.innerHTML = '';
+        svgEl('rect', { class: 'zone', x: x1 - pad, y: y1 - pad - top + 14, width: x2 - x1 + pad * 2, height: y2 - y1 + pad * 2 + top - 14, rx: 16 }, g);
+        const t = svgEl('text', { x: x1 - pad + 20, y: y1 - pad - top + 44 }, g); t.textContent = spec.label || '';
+      });
+    }
+    /* --- edges --- */
+    anchor(n, side, off = 0) {
+      const s = n.box.sides;
+      switch (side) {
+        case 'l': return { x: n.x + s.l, y: n.y + s.cy + off };
+        case 'r': return { x: n.x + s.r, y: n.y + s.cy + off };
+        case 't': return { x: n.x + off, y: n.y + s.t };
+        default: return { x: n.x + off, y: n.y + s.b };
+      }
+    }
+    chooseSides(a, b, e) {
+      if (e.fromSide && e.toSide) return [e.fromSide, e.toSide];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      // bias toward the diagram's reading direction so edges follow the story
+      const bias = (this.spec.direction || 'lr') === 'tb' ? 1 / 0.6 : 0.6;
+      const horiz = Math.abs(dx) / this.cw >= (Math.abs(dy) / this.ch) * bias;
+      let fs, ts;
+      if (horiz) { fs = dx >= 0 ? 'r' : 'l'; ts = dx >= 0 ? 'l' : 'r'; }
+      else { fs = dy >= 0 ? 'b' : 't'; ts = dy >= 0 ? 't' : 'b'; }
+      return [e.fromSide || fs, e.toSide || ts];
+    }
+    drawEdges() {
+      this.sizeGroups();
+      const list = (this.spec.edges || []).map(e => Object.assign({ id: e.id || `${e.from}>${e.to}` }, e));
+      // ports: spread multiple edges leaving/entering the same side
+      const ports = new Map();
+      const plan = list.map(e => {
+        const a = this.nodes.get(e.from), b = this.nodes.get(e.to);
+        if (!a || !b) { console.warn('[DeckKit] edge references unknown node', e); return null; }
+        const [fs, ts] = this.chooseSides(a, b, e);
+        const p = { e, a, b, fs, ts, fo: 0, to: 0 };
+        for (const [node, side, key, other] of [[a, fs, 'fo', b], [b, ts, 'to', a]]) {
+          const k = node.spec.id + ':' + side;
+          if (!ports.has(k)) ports.set(k, []);
+          ports.get(k).push({ p, key, sort: (side === 'l' || side === 'r') ? other.y : other.x });
+        }
+        return p;
+      }).filter(Boolean);
+      ports.forEach(items => {
+        if (items.length < 2) return;
+        items.sort((u, v) => u.sort - v.sort);
+        const gap = 22;
+        items.forEach((it, i) => { it.p[it.key] = (i - (items.length - 1) / 2) * gap; });
+      });
+      plan.forEach(({ e, a, b, fs, ts, fo, to }) => {
+        if (e.offset) { fo += e.offset; to += e.offset; }
+        const S = this.anchor(a, fs, fo), E = this.anchor(b, ts, to);
+        const d = this.route(S, E, fs, ts, e);
+        const tone = e.tone || 'default';
+        const style = e.style === 'async' ? 'dashed' : e.style;
+        const g = svgEl('g', { class: `edge el tone-${tone}${style ? ' is-' + style : ''}`, 'data-id': e.id }, this.layers.edges);
+        const path = svgEl('path', { class: 'line', d }, g);
+        const dir = e.dir || 'forward';
+        if (dir === 'forward' || dir === 'both') path.setAttribute('marker-end', this.markerUrl('end', tone));
+        if (dir === 'back' || dir === 'both') path.setAttribute('marker-start', this.markerUrl('start', tone));
+        let label = null;
+        if (e.label) {
+          label = svgEl('g', { class: 'edge-label' }, g);
+          const len = path.getTotalLength();
+          const pt = path.getPointAtLength(len * (e.labelAt != null ? e.labelAt : 0.5));
+          const r = svgEl('rect', { rx: 8, height: 34 }, label);
+          const t = svgEl('text', { x: pt.x, y: pt.y }, label); t.textContent = e.label;
+          const w = t.getComputedTextLength() + 22;
+          r.setAttribute('x', pt.x - w / 2); r.setAttribute('y', pt.y - 17); r.setAttribute('width', w);
+        }
+        this.edges.set(e.id, { spec: e, g, path, tone, dir, from: e.from, to: e.to });
+      });
+    }
+    route(S, E, fs, ts, e) {
+      const mode = e.route || this.spec.route || 'elbow';
+      if (e.via) {
+        const pts = [S, ...e.via.map(v => this.center(v)), E];
+        return this.rounded(pts, 16);
+      }
+      if (mode === 'straight') return `M${S.x},${S.y} L${E.x},${E.y}`;
+      const horizFrom = fs === 'l' || fs === 'r', horizTo = ts === 'l' || ts === 'r';
+      if (mode === 'curve') {
+        const k = Math.max(60, (horizFrom ? Math.abs(E.x - S.x) : Math.abs(E.y - S.y)) * 0.5);
+        const c1 = { x: S.x + (fs === 'r' ? k : fs === 'l' ? -k : 0), y: S.y + (fs === 'b' ? k : fs === 't' ? -k : 0) };
+        const c2 = { x: E.x + (ts === 'r' ? k : ts === 'l' ? -k : 0), y: E.y + (ts === 'b' ? k : ts === 't' ? -k : 0) };
+        return `M${S.x},${S.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${E.x},${E.y}`;
+      }
+      // elbow (orthogonal, rounded corners)
+      let pts;
+      if (horizFrom && horizTo) {
+        if (Math.abs(S.y - E.y) < 1) pts = [S, E];
+        else { const mx = S.x + (E.x - S.x) * (e.bendAt != null ? e.bendAt : 0.5); pts = [S, { x: mx, y: S.y }, { x: mx, y: E.y }, E]; }
+      } else if (!horizFrom && !horizTo) {
+        if (Math.abs(S.x - E.x) < 1) pts = [S, E];
+        else { const my = S.y + (E.y - S.y) * (e.bendAt != null ? e.bendAt : 0.5); pts = [S, { x: S.x, y: my }, { x: E.x, y: my }, E]; }
+      } else if (horizFrom) pts = [S, { x: E.x, y: S.y }, E];
+      else pts = [S, { x: S.x, y: E.y }, E];
+      return this.rounded(pts, 18);
+    }
+    rounded(pts, r) {
+      let d = `M${pts[0].x},${pts[0].y}`;
+      for (let i = 1; i < pts.length - 1; i++) {
+        const p0 = pts[i - 1], p = pts[i], p1 = pts[i + 1];
+        const d0 = Math.hypot(p.x - p0.x, p.y - p0.y), d1 = Math.hypot(p1.x - p.x, p1.y - p.y);
+        const rr = Math.min(r, d0 / 2, d1 / 2);
+        const a = { x: p.x + (p0.x - p.x) * rr / d0, y: p.y + (p0.y - p.y) * rr / d0 };
+        const b = { x: p.x + (p1.x - p.x) * rr / d1, y: p.y + (p1.y - p.y) * rr / d1 };
+        d += ` L${a.x},${a.y} Q${p.x},${p.y} ${b.x},${b.y}`;
+      }
+      const last = pts[pts.length - 1];
+      return d + ` L${last.x},${last.y}`;
+    }
+
+    /* --- step state --- */
+    allEls() { return [...this.nodes.values(), ...this.edges.values(), ...this.groups.values()]; }
+    elById(id) { return this.nodes.get(id) || this.edges.get(id) || this.groups.get(id) || this.edgeByPair(id); }
+    edgeByPair(id) { // "a>b" or "a-b"
+      const m = /^(.+?)\s*[>-]\s*(.+)$/.exec(id); if (!m) return null;
+      for (const e of this.edges.values()) if ((e.from === m[1] && e.to === m[2]) || (e.from === m[2] && e.to === m[1])) return e;
+      return null;
+    }
+    computeInitial() {
+      this.revealedLater = new Set();
+      this.steps.forEach(s => arr(s.show).forEach(id => this.revealedLater.add(id)));
+    }
+    stateAt(local) {
+      const visible = new Set();
+      this.nodes.forEach((_, id) => { if (!this.revealedLater.has(id)) visible.add(id); });
+      this.groups.forEach((_, id) => { if (!this.revealedLater.has(id)) visible.add(id); });
+      for (let i = 0; i < local; i++) {
+        const s = this.steps[i];
+        arr(s.show).forEach(id => { const el = this.elById(id); if (el) visible.add(el.spec.id || id); });
+        arr(s.hide).forEach(id => { const el = this.elById(id); if (el) visible.delete(el.spec.id || id); });
+      }
+      // edges: explicit reveal, or auto when both endpoints visible
+      this.edges.forEach((e, id) => {
+        const explicit = this.revealedLater.has(id) || [...this.revealedLater].some(r => this.edgeByPair(r) === e);
+        if (explicit) return; // handled above
+        if (visible.has(e.from) && visible.has(e.to)) visible.add(id);
+      });
+      return visible;
+    }
+    setStep(k, ctx = {}) {
+      const local = this.localStep(k);
+      const prev = this.applied;
+      this.applied = local;
+      const visible = this.stateAt(local);
+      // static renders (print / overview) show the full picture without transient emphasis
+      const step = ctx.static ? { caption: this.spec.caption || '' } : local > 0 ? this.steps[local - 1] : (this.spec.initial || {});
+      const animate = ctx.animate && local > prev;
+
+      // visibility + entrance animation
+      this.nodes.forEach((n, id) => this.toggle(n, visible.has(id), animate, 'node'));
+      this.groups.forEach((g, id) => this.toggle(g, visible.has(id), animate, 'group'));
+      this.edges.forEach((e, id) => this.toggle(e, visible.has(id), animate, 'edge'));
+
+      // transient emphasis
+      const hl = new Set(arr(step.highlight).concat(arr(step.focus)));
+      const pulse = new Set(arr(step.pulse));
+      const focus = arr(step.focus);
+      const dimAll = focus.length > 0;
+      const dim = new Set(arr(step.dim));
+      this.allEls().forEach(o => {
+        const id = o.spec.id;
+        const isHl = hl.has(id) || [...hl].some(h => this.edgeByPair(h) === o);
+        o.g.classList.toggle('is-hl', isHl);
+        o.g.classList.toggle('is-pulse', pulse.has(id));
+        const isGroup = this.groups.has(id) && this.groups.get(id) === o;
+        const keep = isHl || (o.from && hl.has(o.from) && hl.has(o.to));
+        o.g.classList.toggle('is-dim', dim.has(id) || (dimAll && !keep && !isGroup));
+      });
+      this.edges.forEach(e => this.setMarkers(e, e.g.classList.contains('is-hl') ? 'accent' : e.tone));
+
+      // flows
+      this.flow.clear();
+      this.edges.forEach(e => { e.g.classList.remove('is-active'); e.g.style.removeProperty('--flow-c'); });
+      if (this.slide.isActive || ctx.force) this.startFlows(step, ctx);
+      this.setCaption(step.caption || (local === 0 ? (this.spec.caption || '') : ''), animate);
+    }
+    startFlows(step, ctx) {
+      arr(step.flow).forEach(f => {
+        const spec = typeof f === 'string' ? { path: f } : f;
+        const color = spec.tone ? TONE_VAR[spec.tone] : null;
+        const route = [];
+        if (spec.edge) {
+          const e = this.edges.get(spec.edge); if (e) route.push({ path: e.path, reverse: !!spec.reverse, e });
+        } else {
+          const ids = String(spec.path).split('>').map(s => s.trim());
+          for (let i = 0; i < ids.length - 1; i++) {
+            const a = ids[i], b = ids[i + 1];
+            let e = [...this.edges.values()].find(x => x.from === a && x.to === b);
+            let reverse = false;
+            if (!e) { e = [...this.edges.values()].find(x => x.from === b && x.to === a); reverse = !!e; }
+            if (!e) { console.warn('[DeckKit] no edge for flow segment', a, '→', b); continue; }
+            route.push({ path: e.path, reverse, e });
+          }
+        }
+        route.forEach(r => {
+          r.e.g.classList.add('is-active');
+          if (color) r.e.g.style.setProperty('--flow-c', color);
+          this.setMarkers(r.e, spec.tone || 'accent');
+        });
+        if (!Motion.reduced && !ctx.static && route.length) this.flow.add(route, Object.assign({}, spec, { color }));
+      });
+    }
+    setMarkers(e, tone) {
+      const fwd = e.dir === 'forward' || e.dir === 'both', back = e.dir === 'back' || e.dir === 'both';
+      if (fwd) e.path.setAttribute('marker-end', this.markerUrl('end', tone)); else e.path.removeAttribute('marker-end');
+      if (back) e.path.setAttribute('marker-start', this.markerUrl('start', tone)); else e.path.removeAttribute('marker-start');
+    }
+    toggle(o, show, animate, kind) {
+      const was = !o.g.classList.contains('is-hidden');
+      o.g.classList.toggle('is-hidden', !show);
+      if (!animate || !show || was) return;
+      if (kind === 'node') Motion.play(o.body, [{ transform: 'scale(.82)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }], { duration: 640, easing: Motion.ease.spring });
+      if (kind === 'edge') {
+        const len = o.path.getTotalLength();
+        Motion.play(o.path, [{ strokeDasharray: `${len} ${len}`, strokeDashoffset: len }, { strokeDasharray: `${len} ${len}`, strokeDashoffset: 0 }], { duration: Math.min(1100, 300 + len * 0.9), easing: Motion.ease.inOut, delay: 120 });
+      }
+      if (kind === 'group') Motion.play(o.g, [{ opacity: 0 }, { opacity: 1 }], { duration: 700 });
+    }
+    leave() { this.flow.clear(); }
+  }
+
+  /* -------------------------------------------------------- SequenceDiagram */
+  class SequenceDiagram extends Diagram {
+    constructor(el, slide, spec) {
+      super(el, slide, spec);
+      const parts = spec.participants || [];
+      let gap = spec.gap || 330, rowH = spec.rowH || 74;
+      const headH = 72, top = 20, m = 140, nMsg = (spec.messages || []).length;
+      if (spec.fit !== false) { // stretch rows / columns to fill the slot
+        const r = this.svg.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          const box = r.width / r.height;
+          const W0 = m * 2 + (parts.length - 1) * gap, H0 = top + headH + 80 + nMsg * rowH;
+          if (W0 / H0 > box) rowH *= clamp(((W0 / box) - (top + headH + 80)) / (nMsg * rowH), 1, 1.8);
+          else if (parts.length > 1) gap *= clamp(((box * H0) - m * 2) / ((parts.length - 1) * gap), 1, 1.6);
+        }
+      }
+      this.rowH = rowH;
+      this.x = new Map(parts.map((p, i) => [p.id, m + i * gap]));
+      const msgs = spec.messages || [];
+      // step assignment: each message is its own step unless step given / with:'prev'
+      let counter = 0;
+      this.items = msgs.map((msg, i) => {
+        let st;
+        if (msg.step != null) { st = msg.step; counter = Math.max(counter, st); }
+        else if (msg.with === 'prev' && i > 0) st = counter;
+        else st = ++counter;
+        return Object.assign({ _step: spec.stepwise === false ? 0 : st, _row: i }, msg);
+      });
+      this.count = spec.stepwise === false ? 0 : counter;
+      const H = top + headH + 50 + msgs.length * rowH + 30;
+      const W = m * 2 + (parts.length - 1) * gap;
+      this.svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+      const lifeL = svgEl('g', null, this.svg), msgL = svgEl('g', null, this.svg), headL = svgEl('g', null, this.svg);
+      this.packets = svgEl('g', null, this.svg);
+      this.flow = new FlowAnimator(this.packets);
+      parts.forEach(p => {
+        const x = this.x.get(p.id);
+        svgEl('line', { class: 'lifeline', x1: x, x2: x, y1: top + headH, y2: H - 10 }, lifeL);
+        const g = svgEl('g', { class: `seq-head tone-${p.tone || 'default'}`, transform: `translate(${x},${top + headH / 2})` }, headL);
+        svgEl('rect', { x: -130, y: -headH / 2, width: 260, height: headH, rx: 14 }, g);
+        this.fitText(g, p.label || p.id, { size: 24, maxW: 230 });
+        if (p.sub) { /* sub shown as tooltip to keep heads compact */ const t = svgEl('title', null, g); t.textContent = p.sub; }
+      });
+      this.items.forEach(it => {
+        const y = top + headH + 50 + it._row * rowH;
+        const g = svgEl('g', { class: `msg el tone-${it.tone || 'default'}${it.kind === 'reply' ? ' is-reply' : ''}` }, msgL);
+        it.g = g;
+        if (it.note) {
+          const xs = arr(it.over || it.from).map(id => this.x.get(id));
+          const x1 = Math.min(...xs) - 120, x2 = Math.max(...xs) + 120;
+          const ng = svgEl('g', { class: 'seq-note' }, g);
+          svgEl('rect', { x: x1, y: y - 24, width: x2 - x1, height: 48, rx: 8 }, ng);
+          const t = svgEl('text', { x: (x1 + x2) / 2, y }, ng); t.textContent = it.note;
+          return;
+        }
+        const x1 = this.x.get(it.from), x2 = this.x.get(it.to);
+        let d;
+        if (it.from === it.to) d = `M${x1},${y - 10} H${x1 + 90} V${y + 22} H${x1 + 6}`;
+        else d = `M${x1 + (x2 > x1 ? 6 : -6)},${y + 10} H${x2 + (x2 > x1 ? -8 : 8)}`;
+        it.path = svgEl('path', { d, 'marker-end': this.markerUrl('end', it.tone || 'default') }, g);
+        const t = svgEl('text', { x: it.from === it.to ? x1 + 100 : (x1 + x2) / 2, y: y - 4, 'text-anchor': it.from === it.to ? 'start' : 'middle' }, g);
+        t.textContent = it.label || '';
+      });
+      this.applied = -1;
+    }
+    get stepCount() { return this.count; }
+    setStep(k, ctx = {}) {
+      const local = this.localStep(k), prev = this.applied; this.applied = local;
+      const animate = ctx.animate && local > prev;
+      this.flow.clear();
+      this.items.forEach(it => {
+        const show = it._step <= local;
+        const wasHidden = it.g.classList.contains('is-hidden');
+        it.g.classList.toggle('is-hidden', !show);
+        const cur = !ctx.static && this.count > 0 && it._step === local;
+        it.g.classList.toggle('is-current', cur);
+        if (it.path) it.path.setAttribute('marker-end', this.markerUrl('end', cur ? 'accent' : (it.tone || 'default')));
+        if (show && wasHidden && animate && it.path) {
+          const len = it.path.getTotalLength();
+          Motion.play(it.path, [{ strokeDasharray: `${len} ${len}`, strokeDashoffset: len }, { strokeDasharray: `${len} ${len}`, strokeDashoffset: 0 }], { duration: 650, easing: Motion.ease.inOut });
+          if (!Motion.reduced) this.flow.add([{ path: it.path, reverse: false }], { loop: false, speed: 1.4, label: it.payload });
+        }
+      });
+      const capItem = this.items.filter(it => it._step === local && it.caption).pop();
+      this.setCaption(capItem ? capItem.caption : (this.spec.caption || ''), animate);
+    }
+    leave() { this.flow.clear(); }
+  }
+
+  /* -------------------------------------------------------------- CodeBlock */
+  class CodeBlock extends Component {
+    constructor(el, slide) {
+      super(el, slide);
+      this.focus = el.dataset.lines ? JSON.parse(el.dataset.lines) : [];
+      const raw = el.textContent.replace(/^\n/, '').replace(/\s+$/, '');
+      const lang = el.dataset.lang || '';
+      el.innerHTML = raw.split('\n').map(l => `<span class="line">${CodeBlock.highlight(l, lang) || ' '}</span>`).join('');
+      this.lines = [...el.querySelectorAll('.line')];
+      // shrink-to-fit long lines (never below 15px) rather than clip them
+      let fs = parseFloat(getComputedStyle(el).fontSize) || 24;
+      while (el.clientWidth > 0 && el.scrollWidth > el.clientWidth + 1 && fs > 18) { fs -= 1; el.style.fontSize = fs + 'px'; }
+    }
+    static highlight(line, lang) {
+      const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const KW = /\b(abstract|async|await|break|case|catch|class|const|continue|def|default|do|else|enum|export|extends|final|finally|for|from|func|function|if|implements|import|in|interface|let|new|null|nil|package|private|protected|public|return|static|super|switch|this|throw|throws|try|type|var|void|while|with|yield|true|false|None|True|False|SELECT|FROM|WHERE|JOIN|ON|GROUP|BY|ORDER|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|TABLE|AND|OR|NOT|AS|LIMIT|record|sealed|val|fun|override)\b/;
+      const re = /(\/\/.*$|#(?![{\w]*\}).*$|--\s.*$)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`[^`]*`)|(@[\w.]+)|(\b\d+(?:\.\d+)?\b)|(\b[A-Z][A-Za-z0-9_]+\b)|(\b[A-Za-z_]\w*\b)/g;
+      let out = '', last = 0, m;
+      if (lang === 'text') return esc(line);
+      while ((m = re.exec(line))) {
+        out += esc(line.slice(last, m.index));
+        const [tok] = m;
+        if (m[1] && lang !== 'json') out += `<span class="t-c">${esc(tok)}</span>`;
+        else if (m[2]) out += `<span class="t-s">${esc(tok)}</span>`;
+        else if (m[3]) out += `<span class="t-a">${esc(tok)}</span>`;
+        else if (m[4]) out += `<span class="t-n">${esc(tok)}</span>`;
+        else if (m[6] && KW.test(tok)) out += `<span class="t-k">${esc(tok)}</span>`;
+        else if (m[5] && !KW.test(tok)) out += `<span class="t-t">${esc(tok)}</span>`;
+        else if (m[5]) out += `<span class="t-k">${esc(tok)}</span>`;
+        else out += esc(tok);
+        last = m.index + tok.length;
+      }
+      return out + esc(line.slice(last));
+    }
+    get stepCount() { return this.focus.length; }
+    setStep(k, ctx = {}) {
+      const local = this.localStep(k);
+      const set = local > 0 && !ctx.static ? parseRanges(this.focus[local - 1]) : null;
+      this.el.classList.toggle('has-focus', !!set);
+      this.lines.forEach((l, i) => l.classList.toggle('is-focus', !!set && set.has(i + 1)));
+      if (set && set.size) {
+        const first = this.lines[Math.min(...set) - 1];
+        if (first && this.el.scrollHeight > this.el.clientHeight) this.el.scrollTo({ top: first.offsetTop - 60, behavior: Motion.reduced ? 'auto' : 'smooth' });
+      }
+    }
+  }
+
+  /* ---------------------------------------------------------------- CountUp */
+  class CountUp extends Component {
+    constructor(el, slide) {
+      super(el, slide);
+      const d = el.dataset;
+      this.to = parseFloat(d.to); this.from = parseFloat(d.from || '0');
+      this.dec = parseInt(d.decimals || '0', 10); this.pre = d.prefix || ''; this.suf = d.suffix || '';
+      this.done = false; this.render(this.to);
+    }
+    fmt(v) { return this.pre + v.toLocaleString(undefined, { minimumFractionDigits: this.dec, maximumFractionDigits: this.dec }) + this.suf; }
+    render(v) { this.el.textContent = this.fmt(v); }
+    visible() { const b = this.el.closest('[data-step]'); return !b || b.classList.contains('is-shown'); }
+    setStep(_k, ctx = {}) {
+      if (ctx.static || this.slide.deck.printing) { this.done = false; this.render(this.to); return; }
+      const vis = this.visible() && this.slide.isActive;
+      if (!vis) { this.done = false; this.render(this.from); return; }
+      if (this.done) return;
+      this.done = true;
+      if (!ctx.animate || Motion.reduced) { this.render(this.to); return; }
+      const t0 = performance.now(), dur = parseInt(this.el.dataset.duration || '1400', 10);
+      const tick = now => {
+        const p = clamp((now - t0) / dur, 0, 1), e = 1 - Math.pow(1 - p, 4);
+        this.render(this.from + (this.to - this.from) * e);
+        if (p < 1 && this.done) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+    leave() { this.done = false; }
+  }
+
+  /* ------------------------------------------------------------------ Slide */
+  class Slide {
+    constructor(el, index, deck) {
+      this.el = el; this.index = index; this.deck = deck;
+      this.notes = (el.querySelector(':scope > aside.notes') || {}).innerHTML || '';
+      const h = el.querySelector('h1, h2, .statement');
+      this.title = el.dataset.title || (h ? h.textContent.trim() : `Slide ${index + 1}`);
+      this.builds = [...el.querySelectorAll('[data-step]')].map(b => new Build(b));
+      const byStep = {};
+      this.builds.forEach(b => { const i = byStep[b.step] = (byStep[b.step] || 0); b.el.style.setProperty('--i', i); byStep[b.step]++; });
+      this.components = [];
+      Deck.registry.forEach(({ selector, factory }) => {
+        el.querySelectorAll(selector).forEach(node => {
+          const c = factory(node, this); if (c) this.components.push(c);
+        });
+      });
+    }
+    get isActive() { return this.deck.slide === this && !this.deck.printing; }
+    get stepCount() {
+      return Math.max(0, ...this.builds.map(b => b.lastStep), ...this.components.map(c => c.lastStep));
+    }
+    setStep(k, ctx) {
+      this.builds.forEach(b => b.apply(k));
+      this.components.forEach(c => c.setStep(k, ctx));
+    }
+    enter(k) { this.components.forEach(c => c.enter(k)); }
+    leave() { this.components.forEach(c => c.leave()); }
+  }
+
+  /* ---------------------------------------------------------- PresenterView */
+  class PresenterView {
+    constructor(deck) { this.deck = deck; this.win = null; this.t0 = Date.now(); }
+    open() {
+      if (this.win && !this.win.closed) { this.win.focus(); return; }
+      this.win = window.open('', 'deckkit-presenter', 'width=1100,height=760');
+      if (!this.win) { alert('Allow pop-ups to open presenter view.'); return; }
+      const d = this.win.document;
+      d.open();
+      d.write(`<!doctype html><title>Presenter — ${document.title}</title><style>
+        body{margin:0;font:18px/1.5 system-ui,sans-serif;background:#0B0E13;color:#E6EBF2;display:grid;grid-template-rows:auto 1fr auto;height:100vh}
+        header,footer{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;background:#121720}
+        #timer{font:700 34px ui-monospace,monospace;color:#7DD3FC} #clock{font:500 20px ui-monospace,monospace;color:#94A3B8}
+        main{display:grid;grid-template-columns:2fr 1fr;gap:0;min-height:0}
+        #notes{padding:24px 32px;overflow:auto;font-size:24px;line-height:1.55} #notes:empty::before{content:"No notes for this slide.";color:#64748B}
+        aside{border-left:1px solid #1F2733;padding:24px;display:flex;flex-direction:column;gap:12px}
+        .k{font:600 12px ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:#64748B}
+        #cur{font-size:26px;font-weight:650} #next{font-size:20px;color:#CBD5E1} #step{font:600 18px ui-monospace,monospace;color:#7DD3FC}
+        button{background:#1E293B;color:#E2E8F0;border:1px solid #334155;border-radius:8px;padding:10px 18px;font-size:16px;cursor:pointer}
+      </style><header><span id="timer">00:00</span><span id="clock"></span></header>
+      <main><div id="notes"></div><aside><div class="k">Now</div><div id="cur"></div><div id="step"></div><div class="k" style="margin-top:24px">Up next</div><div id="next"></div></aside></main>
+      <footer><span><button id="prev">◀ Prev</button> <button id="nxt">Next ▶</button></span><button id="reset">Reset timer</button></footer>`);
+      d.close();
+      d.getElementById('prev').onclick = () => this.deck.prev();
+      d.getElementById('nxt').onclick = () => this.deck.next();
+      d.getElementById('reset').onclick = () => { this.t0 = Date.now(); };
+      this.win.addEventListener('keydown', e => this.deck.onKey(e));
+      clearInterval(this.iv);
+      this.iv = setInterval(() => this.tick(), 500);
+      this.update();
+    }
+    tick() {
+      if (!this.win || this.win.closed) { clearInterval(this.iv); return; }
+      const s = Math.floor((Date.now() - this.t0) / 1000);
+      this.win.document.getElementById('timer').textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+      this.win.document.getElementById('clock').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    update() {
+      if (!this.win || this.win.closed) return;
+      const d = this.win.document, dk = this.deck, s = dk.slide, n = dk.slides[dk.index + 1];
+      d.getElementById('notes').innerHTML = s.notes;
+      d.getElementById('cur').textContent = `${dk.index + 1}. ${s.title}`;
+      d.getElementById('step').textContent = s.stepCount ? `Step ${dk.step} / ${s.stepCount}` : '';
+      d.getElementById('next').textContent = dk.step < s.stepCount ? '(next build on this slide)' : (n ? `${dk.index + 2}. ${n.title}` : '— end —');
+    }
+  }
+
+  /* ------------------------------------------------------------------- Deck */
+  class Deck {
+    static registry = [];
+    static register(selector, ComponentClassOrFactory) {
+      const factory = ComponentClassOrFactory.prototype instanceof Component
+        ? (el, s) => new ComponentClassOrFactory(el, s) : ComponentClassOrFactory;
+      Deck.registry.push({ selector, factory });
+    }
+
+    constructor(root) {
+      this.root = root;
+      this.stage = root.querySelector('.stage');
+      this.title = document.querySelector('meta[name="deck-title"]')?.content || document.title;
+      this.index = 0; this.step = 0; this.printing = false;
+      document.documentElement.classList.add('js');
+      document.documentElement.classList.remove('no-js');
+      this.slides = [...this.stage.querySelectorAll(':scope > .slide')].map((el, i) => new Slide(el, i, this));
+      this.addFooters();
+      this.chrome();
+      this.presenter = new PresenterView(this);
+      this.bind();
+      this.fit();
+      const [i, s] = this.readHash();
+      this.go(i, s, { animate: false });
+    }
+
+    get slide() { return this.slides[this.index]; }
+
+    addFooters() {
+      const total = this.slides.length;
+      this.slides.forEach(s => {
+        const lay = s.el.dataset.layout;
+        if (s.el.dataset.footer === 'off' || lay === 'title' || lay === 'section' || s.el.querySelector(':scope > .slide-footer')) return;
+        const f = document.createElement('div'); f.className = 'slide-footer';
+        f.innerHTML = `<span>${s.el.dataset.footer || this.title}</span><span>${String(s.index + 1).padStart(2, '0')} / ${String(total).padStart(2, '0')}</span>`;
+        s.el.appendChild(f);
+      });
+    }
+    chrome() {
+      const mk = (cls, html = '') => { const d = document.createElement('div'); d.className = cls; d.innerHTML = html; document.body.appendChild(d); return d; };
+      this.bar = mk('deck-progress');
+      this.notesEl = mk('deck-overlay deck-notes');
+      this.helpEl = mk('deck-overlay deck-help', [
+        ['→ Space', 'Next'], ['←', 'Previous'], ['Home / End', 'First / last'], ['O', 'Overview'],
+        ['N', 'Speaker notes'], ['P', 'Presenter window'], ['F', 'Fullscreen'], ['B', 'Blackout'], ['#+Enter', 'Go to slide'], ['?', 'This help'],
+      ].map(([k, v]) => `<div><span><kbd>${k}</kbd></span><span>${v}</span></div>`).join(''));
+      this.blackEl = mk('deck-blackout');
+    }
+    bind() {
+      window.addEventListener('resize', () => this.fit());
+      document.addEventListener('keydown', e => this.onKey(e));
+      window.addEventListener('hashchange', () => { const [i, s] = this.readHash(); if (i !== this.index || s !== this.step) this.go(i, s, { animate: false }); });
+      this.stage.addEventListener('click', e => {
+        if (this.root.classList.contains('is-overview')) {
+          const sl = e.target.closest('.slide'); if (sl) { this.toggleOverview(); this.go(this.slides.findIndex(s => s.el === sl), 0); }
+          return;
+        }
+        if (e.target.closest('a, button, input, select, textarea, [data-no-advance]')) return;
+        if (window.getSelection && String(window.getSelection()).length) return;
+        (e.clientX < window.innerWidth * 0.25) ? this.prev() : this.next();
+      });
+      let tx = 0, ty = 0;
+      this.root.addEventListener('touchstart', e => { tx = e.touches[0].clientX; ty = e.touches[0].clientY; }, { passive: true });
+      this.root.addEventListener('touchend', e => {
+        const dx = e.changedTouches[0].clientX - tx, dy = e.changedTouches[0].clientY - ty;
+        if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) dx < 0 ? this.next() : this.prev();
+      });
+      window.addEventListener('beforeprint', () => this.preparePrint(true));
+      window.addEventListener('afterprint', () => this.preparePrint(false));
+    }
+    onKey(e) {
+      if (e.target.closest && e.target.closest('input, textarea, select')) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = e.key;
+      if (/^\d$/.test(k)) { this.typed = (this.typed || '') + k; clearTimeout(this.typedT); this.typedT = setTimeout(() => (this.typed = ''), 1500); return; }
+      const act = {
+        ArrowRight: () => this.next(), ArrowDown: () => this.next(), PageDown: () => this.next(), ' ': () => (e.shiftKey ? this.prev() : this.next()),
+        ArrowLeft: () => this.prev(), ArrowUp: () => this.prev(), PageUp: () => this.prev(), Backspace: () => this.prev(),
+        Home: () => this.go(0, 0), End: () => this.go(this.slides.length - 1, this.slides[this.slides.length - 1].stepCount),
+        Enter: () => { if (this.typed) { this.go(parseInt(this.typed, 10) - 1, 0); this.typed = ''; } else this.next(); },
+        o: () => this.toggleOverview(), O: () => this.toggleOverview(), Escape: () => this.closeOverlays(),
+        n: () => this.notesEl.classList.toggle('is-open'), N: () => this.notesEl.classList.toggle('is-open'),
+        p: () => this.presenter.open(), P: () => this.presenter.open(),
+        f: () => this.fullscreen(), F: () => this.fullscreen(),
+        b: () => this.blackEl.classList.toggle('is-open'), B: () => this.blackEl.classList.toggle('is-open'), '.': () => this.blackEl.classList.toggle('is-open'),
+        '?': () => this.helpEl.classList.toggle('is-open'),
+      }[k];
+      if (act) { e.preventDefault(); act(); }
+    }
+    closeOverlays() {
+      if (this.root.classList.contains('is-overview')) this.toggleOverview();
+      [this.notesEl, this.helpEl, this.blackEl].forEach(o => o.classList.remove('is-open'));
+    }
+    fullscreen() { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.(); }
+    fit() {
+      const s = Math.min(window.innerWidth / STAGE.w, window.innerHeight / STAGE.h);
+      this.root.style.setProperty('--scale', s);
+    }
+    readHash() {
+      const m = /^#\/(\d+)(?:\/(\d+))?/.exec(location.hash);
+      if (!m) return [0, 0];
+      const i = clamp(parseInt(m[1], 10) - 1, 0, this.slides.length - 1);
+      return [i, clamp(parseInt(m[2] || '0', 10), 0, this.slides[i].stepCount)];
+    }
+    writeHash() { history.replaceState(null, '', `#/${this.index + 1}${this.step ? '/' + this.step : ''}`); }
+
+    next() {
+      if (this.step < this.slide.stepCount) this.go(this.index, this.step + 1);
+      else if (this.index < this.slides.length - 1) this.go(this.index + 1, 0);
+    }
+    prev() {
+      if (this.step > 0) this.go(this.index, this.step - 1);
+      else if (this.index > 0) this.go(this.index - 1, this.slides[this.index - 1].stepCount, { animate: true, back: true });
+    }
+    go(i, step = 0, opts = {}) {
+      i = clamp(i, 0, this.slides.length - 1);
+      const animate = opts.animate !== false;
+      const from = this.slide, to = this.slides[i];
+      const changing = from !== to || !to.el.classList.contains('is-active');
+      if (changing) {
+        if (from && from !== to) { from.leave(); this.transitionOut(from, i > from.index, animate); }
+        this.index = i;
+        to.el.classList.add('is-active');
+        to.el.removeAttribute('aria-hidden');
+        this.step = clamp(step, 0, to.stepCount);
+        to.setStep(this.step, { animate: false });
+        to.enter(this.step);
+        if (from !== to) this.transitionIn(to, i >= (from ? from.index : 0), animate);
+      } else {
+        const fwd = step > this.step;
+        this.step = clamp(step, 0, to.stepCount);
+        to.setStep(this.step, { animate: animate && fwd, forward: fwd });
+      }
+      this.slides.forEach(s => { if (s !== to) s.el.setAttribute('aria-hidden', 'true'); });
+      const total = this.slides.reduce((a, s) => a + s.stepCount + 1, 0);
+      const done = this.slides.slice(0, this.index).reduce((a, s) => a + s.stepCount + 1, 0) + this.step + 1;
+      this.bar.style.setProperty('--p', total > 1 ? (done - 1) / (total - 1) : 1);
+      this.notesEl.innerHTML = `<h4>Notes · ${this.index + 1}. ${to.title}</h4>${to.notes || '<i>No notes.</i>'}`;
+      this.writeHash();
+      this.presenter.update();
+      document.dispatchEvent(new CustomEvent('deck:change', { detail: { index: this.index, step: this.step, slide: to } }));
+    }
+    transitionIn(s, forward, animate) {
+      if (!animate) return;
+      const kind = s.el.dataset.transition || 'slide';
+      const dx = forward ? 1 : -1;
+      const frames = {
+        slide: [{ opacity: 0, transform: `translateX(${80 * dx}px)` }, { opacity: 1, transform: 'none' }],
+        fade: [{ opacity: 0 }, { opacity: 1 }],
+        zoom: [{ opacity: 0, transform: 'scale(.94)', filter: 'blur(6px)' }, { opacity: 1, transform: 'none', filter: 'none' }],
+        rise: [{ opacity: 0, transform: 'translateY(60px)' }, { opacity: 1, transform: 'none' }],
+        none: null,
+      }[kind];
+      if (frames) Motion.play(s.el, frames, { duration: 700, easing: Motion.ease.out });
+    }
+    transitionOut(s, forward, animate) {
+      s.el.classList.remove('is-active');
+      if (!animate || Motion.reduced) return;
+      s.el.classList.add('is-leaving');
+      const dx = forward ? -1 : 1;
+      const a = Motion.play(s.el, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translateX(${40 * dx}px)` }], { duration: 420, easing: Motion.ease.inOut });
+      const done = () => s.el.classList.remove('is-leaving');
+      if (a) a.onfinish = done; else done();
+    }
+    toggleOverview() {
+      const on = this.root.classList.toggle('is-overview');
+      if (on) {
+        this.slides.forEach(s => s.setStep(s.stepCount, { animate: false, static: true }));
+        this.slide.el.scrollIntoView({ block: 'center' });
+      } else {
+        this.slides.forEach(s => { if (s !== this.slide) s.leave(); });
+        this.slide.setStep(this.step, { animate: false });
+      }
+    }
+    preparePrint(on) {
+      this.printing = on;
+      document.documentElement.classList.toggle('printing', on);
+      if (on) this.slides.forEach(s => { s.leave(); s.setStep(s.stepCount, { animate: false, static: true, force: true }); });
+      else this.slides.forEach((s, i) => { s.setStep(i === this.index ? this.step : 0, { animate: false }); if (i === this.index) s.enter(this.step); });
+    }
+  }
+
+  /* ---------------------------------------------------------------- export */
+  Deck.register('.diagram', (el, s) => Diagram.create(el, s));
+  Deck.register('pre.code', CodeBlock);
+  Deck.register('.count[data-to]', CountUp);
+
+  window.DeckKit = { Deck, Slide, Build, Component, Diagram, FlowDiagram, SequenceDiagram, CodeBlock, CountUp, FlowAnimator, PresenterView, Motion };
+  const boot = () => { const root = document.querySelector('.deck'); if (root && !window.deck) window.deck = new Deck(root); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+})();
+
+</script>
+</head>
+<body>
+<div class="deck"><div class="stage">
+<!-- 1. Title -->
+<section class="slide" data-layout="title">
+  <div class="eyebrow">Architecture Review · Q4</div>
+  <h1>Real-time order events, without the 2&nbsp;a.m. pages</h1>
+  <p class="lead">Moving order processing from nightly batch to an event-driven pipeline — what it costs, what it buys, and what we need decided.</p>
+  <div class="meta"><span>Platform Engineering</span><span>October 2026</span></div>
+  <aside class="notes">Open with the outcome, not the tech. Two minutes on why now.</aside>
+</section>
+
+<!-- 2. Statement -->
+<section class="slide" data-layout="statement" data-transition="zoom">
+  <div class="eyebrow">The problem</div>
+  <p class="statement">Customers see an order status that is up to <em>14 hours old</em> — and support pays for it.</p>
+  <aside class="notes">Pause after the number. Let it land.</aside>
+</section>
+
+<!-- 3. KPIs -->
+<section class="slide">
+  <header>
+    <div class="eyebrow">Outcomes</div>
+    <h2>Three numbers this programme commits to</h2>
+  </header>
+  <div class="kpis grow" style="--cols:3; align-content:center">
+    <div class="kpi accent" data-step="1">
+      <div class="kpi-value"><span class="count" data-to="2" data-suffix="s">2s</span></div>
+      <div class="kpi-label">Order status freshness (p99), down from 14 h</div>
+      <div class="delta up">25,000× fresher</div>
+    </div>
+    <div class="kpi" data-step="2">
+      <div class="kpi-value"><span class="count" data-to="38" data-suffix="%">38%</span></div>
+      <div class="kpi-label">Fewer "where is my order" contacts</div>
+      <div class="delta up">≈ $4.1M / yr</div>
+    </div>
+    <div class="kpi" data-step="3">
+      <div class="kpi-value"><span class="count" data-to="99.95" data-decimals="2" data-suffix="%">99.95%</span></div>
+      <div class="kpi-label">Pipeline availability target</div>
+      <div class="delta down">from 99.5% batch SLA</div>
+    </div>
+  </div>
+</section>
+
+<!-- 4. Architecture: animated data flow -->
+<section class="slide" data-theme="blueprint">
+  <header>
+    <div class="eyebrow">Target architecture</div>
+    <h2>One event, four consumers, zero polling</h2>
+  </header>
+  <div class="diagram">
+    <script type="application/json">
+    {
+      "cell": [300, 170],
+      "groups": [
+        {"id": "core", "label": "Event backbone", "nodes": ["kafka", "registry"], "tone": "accent"},
+        {"id": "consumers", "label": "Consumers", "nodes": ["status", "notify", "fraud", "lake"]}
+      ],
+      "nodes": [
+        {"id": "client", "label": "Checkout", "sub": "web + mobile", "kind": "actor", "at": [0, 1]},
+        {"id": "orders", "label": "Order Service", "sub": "Spring Boot", "at": [1, 1]},
+        {"id": "kafka", "label": "orders.v1", "sub": "Kafka topic", "kind": "queue", "at": [2, 1], "tone": "accent"},
+        {"id": "registry", "label": "Schema Registry", "sub": "Avro", "kind": "service", "at": [2, 2.15], "tone": "muted"},
+        {"id": "status", "label": "Status API", "at": [3.6, 0]},
+        {"id": "notify", "label": "Notifications", "at": [3.6, 0.95]},
+        {"id": "fraud", "label": "Fraud Scoring", "at": [3.6, 1.9], "badge": "NEW", "tone": "warn"},
+        {"id": "lake", "label": "Order Lake", "sub": "Iceberg", "kind": "db", "at": [3.6, 2.85]}
+      ],
+      "edges": [
+        {"from": "client", "to": "orders", "label": "POST /orders"},
+        {"from": "orders", "to": "kafka", "label": "publish"},
+        {"from": "registry", "to": "kafka", "style": "dashed", "dir": "none"},
+        {"from": "kafka", "to": "status"},
+        {"from": "kafka", "to": "notify"},
+        {"from": "kafka", "to": "fraud"},
+        {"from": "kafka", "to": "lake", "style": "dashed"}
+      ],
+      "steps": [
+        {"show": ["client", "orders"], "flow": ["client>orders"], "caption": "A customer places an order — the synchronous path ends at the Order Service."},
+        {"show": ["core", "kafka", "registry"], "flow": [{"path": "orders>kafka", "label": "OrderPlaced", "count": 2}], "caption": "It publishes <b>one immutable event</b>, validated against the schema registry."},
+        {"show": ["consumers", "status", "notify", "fraud", "lake"], "flow": ["kafka>status", "kafka>notify", "kafka>fraud", {"path": "kafka>lake", "tone": "muted"}], "caption": "Every consumer reacts independently — adding one never touches the producer."},
+        {"focus": ["kafka", "fraud"], "pulse": ["fraud"], "flow": [{"path": "client>orders>kafka>fraud", "tone": "warn", "label": "score"}], "caption": "New capability, fraud scoring, plugs in with <b>zero</b> changes upstream."}
+      ],
+      "legend": [{"label": "sync", "tone": "default"}, {"label": "async / analytics", "tone": "default", "style": "dashed"}, {"label": "new", "tone": "warn", "style": "box"}]
+    }
+    </script>
+  </div>
+  <aside class="notes">Walk the dot. Step 4 is the punchline for the product folks: extensibility.</aside>
+</section>
+
+<!-- 5. Flowchart with swimlanes -->
+<section class="slide">
+  <header>
+    <div class="eyebrow">Failure handling</div>
+    <h2>When a consumer fails, the event waits — it is never lost</h2>
+  </header>
+  <div class="diagram">
+    <script type="application/json">
+    {
+      "cell": [280, 150],
+      "lanes": [{"label": "Consumer", "row": 0}, {"label": "Retry", "row": 1}, {"label": "Ops", "row": 2}],
+      "nodes": [
+        {"id": "in", "label": "Event in", "kind": "start", "at": [0, 0]},
+        {"id": "proc", "label": "Process", "at": [1, 0]},
+        {"id": "ok", "label": "Succeeded?", "kind": "decision", "at": [2, 0]},
+        {"id": "done", "label": "Commit offset", "kind": "end", "at": [3.2, 0], "tone": "good"},
+        {"id": "retry", "label": "Backoff retry", "sub": "1s · 5s · 30s", "at": [2, 1]},
+        {"id": "dlq", "label": "Parking topic", "kind": "queue", "at": [3.2, 1], "tone": "warn"},
+        {"id": "alert", "label": "Page on-call", "kind": "actor", "at": [3.2, 2], "tone": "bad"}
+      ],
+      "edges": [
+        {"from": "in", "to": "proc"},
+        {"from": "proc", "to": "ok"},
+        {"from": "ok", "to": "done", "label": "yes", "tone": "good"},
+        {"from": "ok", "to": "retry", "label": "no", "tone": "bad"},
+        {"from": "retry", "to": "proc", "label": "retry", "fromSide": "l", "toSide": "b", "style": "dashed"},
+        {"from": "retry", "to": "dlq", "label": "exhausted"},
+        {"from": "dlq", "to": "alert", "style": "dashed"}
+      ],
+      "steps": [
+        {"flow": ["in>proc>ok>done"], "highlight": ["done"], "caption": "Happy path: process, commit, move on."},
+        {"flow": [{"path": "ok>retry>proc", "tone": "bad"}], "highlight": ["retry"], "caption": "Transient failure: bounded retries with backoff."},
+        {"flow": [{"path": "retry>dlq>alert", "tone": "warn"}], "focus": ["retry", "dlq", "alert"], "caption": "Still failing: park it, page a human, keep the partition moving."}
+      ]
+    }
+    </script>
+  </div>
+</section>
+
+<!-- 6. Sequence diagram (technical deep-dive slide, dark) -->
+<section class="slide" data-theme="technical">
+  <header>
+    <div class="eyebrow">Deep dive · exactly-once</div>
+    <h2>How a write becomes an event, atomically</h2>
+  </header>
+  <div class="diagram">
+    <script type="application/json">
+    {
+      "type": "sequence",
+      "gap": 360,
+      "participants": [
+        {"id": "api", "label": "Order API"},
+        {"id": "db", "label": "Postgres", "tone": "accent"},
+        {"id": "relay", "label": "Outbox Relay"},
+        {"id": "kafka", "label": "Kafka"}
+      ],
+      "messages": [
+        {"from": "api", "to": "db", "label": "BEGIN; INSERT order + outbox row; COMMIT", "caption": "Business row and event row commit in <b>one</b> transaction."},
+        {"from": "relay", "to": "db", "label": "poll outbox (CDC)", "payload": "row"},
+        {"from": "relay", "to": "kafka", "label": "produce (idempotent)", "payload": "OrderPlaced", "caption": "Idempotent producer: retries can never duplicate."},
+        {"from": "kafka", "to": "relay", "label": "ack", "kind": "reply"},
+        {"from": "relay", "to": "db", "label": "mark sent", "with": "prev"},
+        {"note": "Crash anywhere → replay is safe", "over": ["db", "kafka"], "caption": "Any crash just replays from the outbox. No dual-write gap."}
+      ]
+    }
+    </script>
+  </div>
+</section>
+
+<!-- 7. Code walkthrough -->
+<section class="slide" data-theme="technical">
+  <header>
+    <div class="eyebrow">Deep dive · consumer</div>
+    <h2>The consumer contract in 14 lines</h2>
+  </header>
+  <div class="split wide-left">
+    <pre class="code" data-lang="java" data-lines='["1-4", "6-10", "12-14"]'>
+@KafkaListener(topics = "orders.v1")
+void onOrder(OrderPlaced evt, Acknowledgment ack) {
+  if (dedupe.seen(evt.eventId()))
+    { ack.acknowledge(); return; }
+
+  // idempotent on eventId
+  store.upsert(evt.orderId(), PLACED);
+  metrics.lag(evt.ts());
+  dedupe.mark(evt.eventId());
+  ack.acknowledge();
+}
+// retries → parking topic → alert
+@Bean DefaultErrorHandler errors() {
+  return new DefaultErrorHandler(park, backoff); }</pre>
+    <ul class="points">
+      <li data-step="1">Dedupe first<small>Replays are free and expected</small></li>
+      <li data-step="2">Idempotent upsert<small>Same event twice = same state</small></li>
+      <li data-step="3">Errors are policy, not code<small>One handler, shared by every consumer</small></li>
+    </ul>
+  </div>
+</section>
+
+<!-- 8. Compare -->
+<section class="slide">
+  <header>
+    <div class="eyebrow">What changes for teams</div>
+    <h2>From owning a batch window to owning an event</h2>
+  </header>
+  <div class="compare">
+    <div class="before">
+      <div class="label">Today · nightly batch</div>
+      <ul class="points">
+        <li>Status refreshed once a day</li>
+        <li>Every new use case edits the batch job</li>
+        <li>Failures found the next morning</li>
+      </ul>
+    </div>
+    <div class="after" data-step="1" data-anim="wipe">
+      <div class="label">Target · event-driven</div>
+      <ul class="points">
+        <li>Status in under 2 seconds</li>
+        <li>New consumers subscribe, nothing upstream changes</li>
+        <li>Failures parked, alerted and replayable</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 9. Investment bars -->
+<section class="slide">
+  <header>
+    <div class="eyebrow">Investment</div>
+    <h2>Most of the cost is one-off migration, not run-rate</h2>
+  </header>
+  <div class="split">
+    <div class="bars">
+      <div class="bar"><span>Migration (one-off)</span><div class="bar-track"><div class="bar-fill" style="--v:82"></div></div><span class="bar-val">$1.9M</span></div>
+      <div class="bar"><span>Platform run-rate</span><div class="bar-track"><div class="bar-fill" style="--v:31; --i:1; --bar-color:var(--accent-2)"></div></div><span class="bar-val">$0.7M</span></div>
+      <div class="bar"><span>Support savings</span><div class="bar-track"><div class="bar-fill" style="--v:100; --i:2; --bar-color:var(--good)"></div></div><span class="bar-val">$4.1M</span></div>
+    </div>
+    <div class="callout good" data-step="1">Payback inside <strong>7 months</strong> of go-live; run-rate is covered 5× by support savings alone.</div>
+  </div>
+</section>
+
+<!-- 10. Roadmap -->
+<section class="slide">
+  <header>
+    <div class="eyebrow">Roadmap</div>
+    <h2>Four increments, each shippable on its own</h2>
+  </header>
+  <div class="timeline grow" style="--cols:4; align-content:center">
+    <div class="milestone done" data-step="1"><span class="when">Nov</span><h3>Backbone live</h3><p>Topic, schemas, outbox relay in prod.</p></div>
+    <div class="milestone now" data-step="1"><span class="when">Jan</span><h3>Status API</h3><p>First consumer; dark-launched against batch.</p></div>
+    <div class="milestone" data-step="2"><span class="when">Mar</span><h3>Notifications</h3><p>Push + email on every transition.</p></div>
+    <div class="milestone" data-step="2"><span class="when">May</span><h3>Batch retired</h3><p>Fraud scoring joins; nightly job off.</p></div>
+  </div>
+</section>
+
+<!-- 11. The ask -->
+<section class="slide">
+  <header>
+    <div class="eyebrow">Decisions needed today</div>
+    <h2>Three asks</h2>
+  </header>
+  <div class="ask">
+    <div data-step="1"><div><h3>Fund the migration — $1.9M one-off</h3><p class="muted">Released in two tranches, gated on the January dark launch.</p></div></div>
+    <div data-step="2"><div><h3>Name the event backbone a shared platform</h3><p class="muted">Owned by Platform Engineering, consumed by every order domain.</p></div></div>
+    <div data-step="3"><div><h3>Agree the May date to retire nightly batch</h3><p class="muted">Gives downstream teams two quarters' notice.</p></div></div>
+  </div>
+</section>
+</div></div>
+</body>
+</html>

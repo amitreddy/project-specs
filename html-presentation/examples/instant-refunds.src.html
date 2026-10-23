@@ -1,0 +1,65 @@
+<!-- deck: {"title": "Instant Refunds", "theme": "product"} -->
+<script>
+class Typewriter extends DeckKit.Component {
+  constructor(el, slide) { super(el, slide); this.full = el.textContent; }
+  get stepCount() { return 1; }
+  setStep(k, ctx) { this.el.textContent = (ctx.static || this.localStep(k) >= 1) ? this.full : '…'; }
+}
+DeckKit.Deck.register('.typewriter', Typewriter);
+</script>
+
+<section class="slide" data-layout="title">
+  <div class="eyebrow">Product review</div>
+  <h1>Refunds in seconds, not five business days</h1>
+  <p class="lead">What customers feel, how it works, and how we'll know it's working.</p>
+  <div class="meta"><span>Payments Experience</span><span>Q1 plan</span></div>
+</section>
+
+<section class="slide">
+  <header><div class="eyebrow">The customer today</div><h2>Every refund starts a week of uncertainty</h2></header>
+  <div class="cards" style="--cols:3">
+    <div class="card" data-step="1"><span class="kicker">Day 0</span><h3>Return accepted</h3><p>Customer gets an email — and no date.</p></div>
+    <div class="card" data-step="2"><span class="kicker">Day 2–4</span><h3>"Where's my money?"</h3><p>31% contact support at least once.</p></div>
+    <div class="card accent" data-step="3"><span class="kicker">Day 5+</span><h3>Trust erodes</h3><p>Repeat purchase rate drops 9 pts.</p></div>
+  </div>
+  <p class="callout typewriter" data-step-start="4">Instant refunds remove the waiting entirely.</p>
+</section>
+
+<section class="slide">
+  <header><div class="eyebrow">How it works</div><h2>We pay first, settle later — inside guardrails</h2></header>
+  <div class="diagram">
+    <script type="application/json">
+    {
+      "direction": "tb",
+      "cell": [300, 140],
+      "nodes": [
+        {"id": "ret", "label": "Return scanned", "kind": "start", "at": [1, 0]},
+        {"id": "risk", "label": "Low risk?", "kind": "decision", "at": [1, 1]},
+        {"id": "pay", "label": "Instant refund", "sub": "to original card", "at": [0, 2], "tone": "good"},
+        {"id": "std", "label": "Standard refund", "sub": "after inspection", "at": [2, 2], "tone": "muted"},
+        {"id": "happy", "label": "Customer notified", "kind": "end", "at": [1, 3], "tone": "good"}
+      ],
+      "edges": [
+        {"from": "ret", "to": "risk"},
+        {"from": "risk", "to": "pay", "label": "yes", "tone": "good"},
+        {"from": "risk", "to": "std", "label": "no"},
+        {"from": "pay", "to": "happy"},
+        {"from": "std", "to": "happy", "style": "dashed"}
+      ],
+      "steps": [
+        {"flow": ["ret>risk"], "caption": "Every return gets a real-time risk score."},
+        {"flow": [{"path": "risk>pay>happy", "tone": "good"}], "focus": ["risk", "pay", "happy"], "caption": "<b>92%</b> qualify — money moves before the box ships back."},
+        {"flow": [{"path": "risk>std>happy", "tone": "muted"}], "caption": "The rest follow today's process, unchanged."}
+      ]
+    }
+    </script>
+  </div>
+</section>
+
+<section class="slide">
+  <header><div class="eyebrow">Success</div><h2>How we'll know it's working</h2></header>
+  <div class="kpis grow" style="--cols:2; align-content:center">
+    <div class="kpi accent" data-step="1" data-anim="pop"><div class="kpi-value"><span class="count" data-to="92" data-suffix="%">92%</span></div><div class="kpi-label">Refunds paid instantly</div></div>
+    <div class="kpi" data-step="2" data-anim="pop"><div class="kpi-value"><span class="count" data-to="-60" data-suffix="%">-60%</span></div><div class="kpi-label">Refund-status contacts</div></div>
+  </div>
+</section>

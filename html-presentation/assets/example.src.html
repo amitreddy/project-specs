@@ -1,0 +1,256 @@
+<!-- deck: {"title": "Real-Time Order Events", "theme": "executive", "footer": "Real-Time Order Events · Internal"} -->
+
+<!-- 1. Title -->
+<section class="slide" data-layout="title">
+  <div class="eyebrow">Architecture Review · Q4</div>
+  <h1>Real-time order events, without the 2&nbsp;a.m. pages</h1>
+  <p class="lead">Moving order processing from nightly batch to an event-driven pipeline — what it costs, what it buys, and what we need decided.</p>
+  <div class="meta"><span>Platform Engineering</span><span>October 2026</span></div>
+  <aside class="notes">Open with the outcome, not the tech. Two minutes on why now.</aside>
+</section>
+
+<!-- 2. Statement -->
+<section class="slide" data-layout="statement" data-transition="zoom">
+  <div class="eyebrow">The problem</div>
+  <p class="statement">Customers see an order status that is up to <em>14 hours old</em> — and support pays for it.</p>
+  <aside class="notes">Pause after the number. Let it land.</aside>
+</section>
+
+<!-- 3. KPIs -->
+<section class="slide">
+  <header>
+    <div class="eyebrow">Outcomes</div>
+    <h2>Three numbers this programme commits to</h2>
+  </header>
+  <div class="kpis grow" style="--cols:3; align-content:center">
+    <div class="kpi accent" data-step="1">
+      <div class="kpi-value"><span class="count" data-to="2" data-suffix="s">2s</span></div>
+      <div class="kpi-label">Order status freshness (p99), down from 14 h</div>
+      <div class="delta up">25,000× fresher</div>
+    </div>
+    <div class="kpi" data-step="2">
+      <div class="kpi-value"><span class="count" data-to="38" data-suffix="%">38%</span></div>
+      <div class="kpi-label">Fewer "where is my order" contacts</div>
+      <div class="delta up">≈ $4.1M / yr</div>
+    </div>
+    <div class="kpi" data-step="3">
+      <div class="kpi-value"><span class="count" data-to="99.95" data-decimals="2" data-suffix="%">99.95%</span></div>
+      <div class="kpi-label">Pipeline availability target</div>
+      <div class="delta down">from 99.5% batch SLA</div>
+    </div>
+  </div>
+</section>
+
+<!-- 4. Architecture: animated data flow -->
+<section class="slide" data-theme="blueprint">
+  <header>
+    <div class="eyebrow">Target architecture</div>
+    <h2>One event, four consumers, zero polling</h2>
+  </header>
+  <div class="diagram">
+    <script type="application/json">
+    {
+      "cell": [300, 170],
+      "groups": [
+        {"id": "core", "label": "Event backbone", "nodes": ["kafka", "registry"], "tone": "accent"},
+        {"id": "consumers", "label": "Consumers", "nodes": ["status", "notify", "fraud", "lake"]}
+      ],
+      "nodes": [
+        {"id": "client", "label": "Checkout", "sub": "web + mobile", "kind": "actor", "at": [0, 1]},
+        {"id": "orders", "label": "Order Service", "sub": "Spring Boot", "at": [1, 1]},
+        {"id": "kafka", "label": "orders.v1", "sub": "Kafka topic", "kind": "queue", "at": [2, 1], "tone": "accent"},
+        {"id": "registry", "label": "Schema Registry", "sub": "Avro", "kind": "service", "at": [2, 2.15], "tone": "muted"},
+        {"id": "status", "label": "Status API", "at": [3.6, 0]},
+        {"id": "notify", "label": "Notifications", "at": [3.6, 0.95]},
+        {"id": "fraud", "label": "Fraud Scoring", "at": [3.6, 1.9], "badge": "NEW", "tone": "warn"},
+        {"id": "lake", "label": "Order Lake", "sub": "Iceberg", "kind": "db", "at": [3.6, 2.85]}
+      ],
+      "edges": [
+        {"from": "client", "to": "orders", "label": "POST /orders"},
+        {"from": "orders", "to": "kafka", "label": "publish"},
+        {"from": "registry", "to": "kafka", "style": "dashed", "dir": "none"},
+        {"from": "kafka", "to": "status"},
+        {"from": "kafka", "to": "notify"},
+        {"from": "kafka", "to": "fraud"},
+        {"from": "kafka", "to": "lake", "style": "dashed"}
+      ],
+      "steps": [
+        {"show": ["client", "orders"], "flow": ["client>orders"], "caption": "A customer places an order — the synchronous path ends at the Order Service."},
+        {"show": ["core", "kafka", "registry"], "flow": [{"path": "orders>kafka", "label": "OrderPlaced", "count": 2}], "caption": "It publishes <b>one immutable event</b>, validated against the schema registry."},
+        {"show": ["consumers", "status", "notify", "fraud", "lake"], "flow": ["kafka>status", "kafka>notify", "kafka>fraud", {"path": "kafka>lake", "tone": "muted"}], "caption": "Every consumer reacts independently — adding one never touches the producer."},
+        {"focus": ["kafka", "fraud"], "pulse": ["fraud"], "flow": [{"path": "client>orders>kafka>fraud", "tone": "warn", "label": "score"}], "caption": "New capability, fraud scoring, plugs in with <b>zero</b> changes upstream."}
+      ],
+      "legend": [{"label": "sync", "tone": "default"}, {"label": "async / analytics", "tone": "default", "style": "dashed"}, {"label": "new", "tone": "warn", "style": "box"}]
+    }
+    </script>
+  </div>
+  <aside class="notes">Walk the dot. Step 4 is the punchline for the product folks: extensibility.</aside>
+</section>
+
+<!-- 5. Flowchart with swimlanes -->
+<section class="slide">
+  <header>
+    <div class="eyebrow">Failure handling</div>
+    <h2>When a consumer fails, the event waits — it is never lost</h2>
+  </header>
+  <div class="diagram">
+    <script type="application/json">
+    {
+      "cell": [280, 150],
+      "lanes": [{"label": "Consumer", "row": 0}, {"label": "Retry", "row": 1}, {"label": "Ops", "row": 2}],
+      "nodes": [
+        {"id": "in", "label": "Event in", "kind": "start", "at": [0, 0]},
+        {"id": "proc", "label": "Process", "at": [1, 0]},
+        {"id": "ok", "label": "Succeeded?", "kind": "decision", "at": [2, 0]},
+        {"id": "done", "label": "Commit offset", "kind": "end", "at": [3.2, 0], "tone": "good"},
+        {"id": "retry", "label": "Backoff retry", "sub": "1s · 5s · 30s", "at": [2, 1]},
+        {"id": "dlq", "label": "Parking topic", "kind": "queue", "at": [3.2, 1], "tone": "warn"},
+        {"id": "alert", "label": "Page on-call", "kind": "actor", "at": [3.2, 2], "tone": "bad"}
+      ],
+      "edges": [
+        {"from": "in", "to": "proc"},
+        {"from": "proc", "to": "ok"},
+        {"from": "ok", "to": "done", "label": "yes", "tone": "good"},
+        {"from": "ok", "to": "retry", "label": "no", "tone": "bad"},
+        {"from": "retry", "to": "proc", "label": "retry", "fromSide": "l", "toSide": "b", "style": "dashed"},
+        {"from": "retry", "to": "dlq", "label": "exhausted"},
+        {"from": "dlq", "to": "alert", "style": "dashed"}
+      ],
+      "steps": [
+        {"flow": ["in>proc>ok>done"], "highlight": ["done"], "caption": "Happy path: process, commit, move on."},
+        {"flow": [{"path": "ok>retry>proc", "tone": "bad"}], "highlight": ["retry"], "caption": "Transient failure: bounded retries with backoff."},
+        {"flow": [{"path": "retry>dlq>alert", "tone": "warn"}], "focus": ["retry", "dlq", "alert"], "caption": "Still failing: park it, page a human, keep the partition moving."}
+      ]
+    }
+    </script>
+  </div>
+</section>
+
+<!-- 6. Sequence diagram (technical deep-dive slide, dark) -->
+<section class="slide" data-theme="technical">
+  <header>
+    <div class="eyebrow">Deep dive · exactly-once</div>
+    <h2>How a write becomes an event, atomically</h2>
+  </header>
+  <div class="diagram">
+    <script type="application/json">
+    {
+      "type": "sequence",
+      "gap": 360,
+      "participants": [
+        {"id": "api", "label": "Order API"},
+        {"id": "db", "label": "Postgres", "tone": "accent"},
+        {"id": "relay", "label": "Outbox Relay"},
+        {"id": "kafka", "label": "Kafka"}
+      ],
+      "messages": [
+        {"from": "api", "to": "db", "label": "BEGIN; INSERT order + outbox row; COMMIT", "caption": "Business row and event row commit in <b>one</b> transaction."},
+        {"from": "relay", "to": "db", "label": "poll outbox (CDC)", "payload": "row"},
+        {"from": "relay", "to": "kafka", "label": "produce (idempotent)", "payload": "OrderPlaced", "caption": "Idempotent producer: retries can never duplicate."},
+        {"from": "kafka", "to": "relay", "label": "ack", "kind": "reply"},
+        {"from": "relay", "to": "db", "label": "mark sent", "with": "prev"},
+        {"note": "Crash anywhere → replay is safe", "over": ["db", "kafka"], "caption": "Any crash just replays from the outbox. No dual-write gap."}
+      ]
+    }
+    </script>
+  </div>
+</section>
+
+<!-- 7. Code walkthrough -->
+<section class="slide" data-theme="technical">
+  <header>
+    <div class="eyebrow">Deep dive · consumer</div>
+    <h2>The consumer contract in 14 lines</h2>
+  </header>
+  <div class="split wide-left">
+    <pre class="code" data-lang="java" data-lines='["1-4", "6-10", "12-14"]'>
+@KafkaListener(topics = "orders.v1")
+void onOrder(OrderPlaced evt, Acknowledgment ack) {
+  if (dedupe.seen(evt.eventId()))
+    { ack.acknowledge(); return; }
+
+  // idempotent on eventId
+  store.upsert(evt.orderId(), PLACED);
+  metrics.lag(evt.ts());
+  dedupe.mark(evt.eventId());
+  ack.acknowledge();
+}
+// retries → parking topic → alert
+@Bean DefaultErrorHandler errors() {
+  return new DefaultErrorHandler(park, backoff); }</pre>
+    <ul class="points">
+      <li data-step="1">Dedupe first<small>Replays are free and expected</small></li>
+      <li data-step="2">Idempotent upsert<small>Same event twice = same state</small></li>
+      <li data-step="3">Errors are policy, not code<small>One handler, shared by every consumer</small></li>
+    </ul>
+  </div>
+</section>
+
+<!-- 8. Compare -->
+<section class="slide">
+  <header>
+    <div class="eyebrow">What changes for teams</div>
+    <h2>From owning a batch window to owning an event</h2>
+  </header>
+  <div class="compare">
+    <div class="before">
+      <div class="label">Today · nightly batch</div>
+      <ul class="points">
+        <li>Status refreshed once a day</li>
+        <li>Every new use case edits the batch job</li>
+        <li>Failures found the next morning</li>
+      </ul>
+    </div>
+    <div class="after" data-step="1" data-anim="wipe">
+      <div class="label">Target · event-driven</div>
+      <ul class="points">
+        <li>Status in under 2 seconds</li>
+        <li>New consumers subscribe, nothing upstream changes</li>
+        <li>Failures parked, alerted and replayable</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 9. Investment bars -->
+<section class="slide">
+  <header>
+    <div class="eyebrow">Investment</div>
+    <h2>Most of the cost is one-off migration, not run-rate</h2>
+  </header>
+  <div class="split">
+    <div class="bars">
+      <div class="bar"><span>Migration (one-off)</span><div class="bar-track"><div class="bar-fill" style="--v:82"></div></div><span class="bar-val">$1.9M</span></div>
+      <div class="bar"><span>Platform run-rate</span><div class="bar-track"><div class="bar-fill" style="--v:31; --i:1; --bar-color:var(--accent-2)"></div></div><span class="bar-val">$0.7M</span></div>
+      <div class="bar"><span>Support savings</span><div class="bar-track"><div class="bar-fill" style="--v:100; --i:2; --bar-color:var(--good)"></div></div><span class="bar-val">$4.1M</span></div>
+    </div>
+    <div class="callout good" data-step="1">Payback inside <strong>7 months</strong> of go-live; run-rate is covered 5× by support savings alone.</div>
+  </div>
+</section>
+
+<!-- 10. Roadmap -->
+<section class="slide">
+  <header>
+    <div class="eyebrow">Roadmap</div>
+    <h2>Four increments, each shippable on its own</h2>
+  </header>
+  <div class="timeline grow" style="--cols:4; align-content:center">
+    <div class="milestone done" data-step="1"><span class="when">Nov</span><h3>Backbone live</h3><p>Topic, schemas, outbox relay in prod.</p></div>
+    <div class="milestone now" data-step="1"><span class="when">Jan</span><h3>Status API</h3><p>First consumer; dark-launched against batch.</p></div>
+    <div class="milestone" data-step="2"><span class="when">Mar</span><h3>Notifications</h3><p>Push + email on every transition.</p></div>
+    <div class="milestone" data-step="2"><span class="when">May</span><h3>Batch retired</h3><p>Fraud scoring joins; nightly job off.</p></div>
+  </div>
+</section>
+
+<!-- 11. The ask -->
+<section class="slide">
+  <header>
+    <div class="eyebrow">Decisions needed today</div>
+    <h2>Three asks</h2>
+  </header>
+  <div class="ask">
+    <div data-step="1"><div><h3>Fund the migration — $1.9M one-off</h3><p class="muted">Released in two tranches, gated on the January dark launch.</p></div></div>
+    <div data-step="2"><div><h3>Name the event backbone a shared platform</h3><p class="muted">Owned by Platform Engineering, consumed by every order domain.</p></div></div>
+    <div data-step="3"><div><h3>Agree the May date to retire nightly batch</h3><p class="muted">Gives downstream teams two quarters' notice.</p></div></div>
+  </div>
+</section>

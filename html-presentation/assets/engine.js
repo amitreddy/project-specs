@@ -1,0 +1,1067 @@
+/* ==========================================================================
+   DeckKit engine.js — zero-dependency presentation runtime.
+
+   Object model
+   ------------
+   Deck            owns slides, navigation, hash, keyboard/touch, chrome, print
+   Slide           owns its Builds + Components; knows its step count
+   Build           an element with data-step (CSS-driven reveal)
+   Component       base class for anything with internal steps
+     ├ FlowDiagram       nodes / edges / groups / lanes + animated packets
+     ├ SequenceDiagram   participants + messages, one message per step
+     ├ CodeBlock         line-range focus per step + light syntax colouring
+     └ CountUp           animated number when it becomes visible
+   FlowAnimator    rAF loop moving packets along SVG paths
+   PresenterView   second window with notes, timer, next slide
+   Motion          easing/duration tokens + WAAPI helper (honours reduced motion)
+
+   Extend:  DeckKit.Deck.register('.my-thing', MyComponent)  before load.
+   ========================================================================== */
+(function () {
+  'use strict';
+
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const STAGE = { w: 1920, h: 1080 };
+
+  /* ---------------------------------------------------------------- Motion */
+  const Motion = {
+    reduced: window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches,
+    ease: { out: 'cubic-bezier(.16,1,.3,1)', inOut: 'cubic-bezier(.65,0,.35,1)', spring: 'cubic-bezier(.34,1.45,.64,1)' },
+    dur: { fast: 220, base: 560, slow: 900 },
+    play(el, frames, opts = {}) {
+      if (!el || !el.animate) return null;
+      const o = Object.assign({ duration: this.dur.base, easing: this.ease.out, fill: 'none' }, opts);
+      if (this.reduced) { o.duration = 1; o.delay = 0; }
+      try { return el.animate(frames, o); } catch (e) { return null; }
+    },
+  };
+
+  /* --------------------------------------------------------------- helpers */
+  function svgEl(tag, attrs, parent) {
+    const el = document.createElementNS(SVGNS, tag);
+    if (attrs) for (const k in attrs) if (attrs[k] !== undefined && attrs[k] !== null) el.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(el);
+    return el;
+  }
+  function parseRanges(spec) { // "1-3,5" -> Set{1,2,3,5}
+    const out = new Set();
+    String(spec).split(',').forEach(part => {
+      const [a, b] = part.trim().split('-').map(Number);
+      if (!isNaN(a)) for (let i = a; i <= (isNaN(b) ? a : b); i++) out.add(i);
+    });
+    return out;
+  }
+  const arr = v => (v == null ? [] : Array.isArray(v) ? v : [v]);
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  function readJSON(el) {
+    const s = el.querySelector(':scope > script[type="application/json"]');
+    if (!s) return null;
+    try { return JSON.parse(s.textContent); }
+    catch (e) { console.error('[DeckKit] Invalid diagram JSON', el, e); return null; }
+  }
+
+  /* -------------------------------------------------------------- Component */
+  class Component {
+    constructor(el, slide) {
+      this.el = el; this.slide = slide;
+      this.start = parseInt(el.dataset.stepStart || '1', 10);
+    }
+    get stepCount() { return 0; }
+    get lastStep() { return this.stepCount ? this.start + this.stepCount - 1 : 0; }
+    localStep(k) { return clamp(k - this.start + 1, 0, this.stepCount); }
+    setStep(_k, _ctx) {}
+    enter() {} leave() {}
+  }
+
+  /* ------------------------------------------------------------------ Build */
+  class Build {
+    constructor(el) {
+      this.el = el;
+      this.step = parseInt(el.dataset.step, 10) || 1;
+      this.until = el.dataset.until ? parseInt(el.dataset.until, 10) : null;
+      this.dimAfter = el.dataset.dimAfter ? parseInt(el.dataset.dimAfter, 10) : null;
+    }
+    get lastStep() { return Math.max(this.step, this.until != null ? this.until + 1 : 0, this.dimAfter != null ? this.dimAfter : 0); }
+    apply(k) {
+      const shown = k >= this.step && (this.until == null || k <= this.until);
+      this.el.classList.toggle('is-shown', shown);
+      this.el.classList.toggle('is-current-step', k === this.step);
+      if (this.dimAfter != null) this.el.classList.toggle('is-dimmed', k >= this.dimAfter);
+    }
+  }
+
+  /* ---------------------------------------------------------- FlowAnimator */
+  class FlowAnimator {
+    constructor(layer) { this.layer = layer; this.flows = []; this.raf = 0; this.t0 = 0; }
+    /** route: [{path: SVGPathElement, reverse: bool}] */
+    add(route, opts) {
+      const segs = route.map(r => ({ path: r.path, reverse: r.reverse, len: r.path.getTotalLength() }));
+      const total = segs.reduce((s, x) => s + x.len, 0);
+      if (!total) return;
+      const f = {
+        segs, total,
+        speed: 520 * (opts.speed || 1),             // viewBox px / second
+        count: opts.count || 1,
+        loop: opts.loop !== false,
+        delay: opts.delay || 0,
+        color: opts.color, label: opts.label,
+        packets: [],
+      };
+      for (let i = 0; i < f.count; i++) f.packets.push(this.makePacket(f));
+      this.flows.push(f);
+      if (!this.raf) { this.t0 = performance.now(); this.raf = requestAnimationFrame(t => this.tick(t)); }
+    }
+    makePacket(f) {
+      const g = svgEl('g', { class: 'packet' }, this.layer);
+      if (f.color) g.style.setProperty('--flow-c', f.color);
+      svgEl('circle', { class: 'halo', r: 16 }, g);
+      svgEl('circle', { class: 'core', r: 8 }, g);
+      if (f.label) {
+        const tg = svgEl('g', { transform: 'translate(0,-30)' }, g);
+        const rect = svgEl('rect', { rx: 8, height: 28, y: -20 }, tg);
+        const tx = svgEl('text', { y: 0 }, tg); tx.textContent = f.label;
+        const w = (tx.getComputedTextLength ? tx.getComputedTextLength() : f.label.length * 10) + 18;
+        rect.setAttribute('width', w); rect.setAttribute('x', -w / 2);
+      }
+      g.style.opacity = 0;
+      return g;
+    }
+    pointAt(f, d) {
+      for (const s of f.segs) {
+        if (d <= s.len) return s.path.getPointAtLength(s.reverse ? s.len - d : d);
+        d -= s.len;
+      }
+      const last = f.segs[f.segs.length - 1];
+      return last.path.getPointAtLength(last.reverse ? 0 : last.len);
+    }
+    tick(now) {
+      const t = (now - this.t0) / 1000;
+      for (const f of this.flows) {
+        const travel = f.total / f.speed;                 // seconds for one trip
+        const gap = Math.max(travel / f.count, 0.35);
+        const cycle = f.loop ? Math.max(travel, gap * f.count) + 0.5 : Infinity;
+        f.packets.forEach((p, i) => {
+          let local = t - f.delay - i * gap;
+          if (f.loop && local > 0) local = local % cycle;
+          if (local < 0 || local > travel) { p.style.opacity = 0; return; }
+          const d = (local / travel) * f.total;
+          const pt = this.pointAt(f, d);
+          const edgeFade = Math.min(1, local / 0.15, (travel - local) / 0.15);
+          p.style.opacity = edgeFade;
+          p.setAttribute('transform', `translate(${pt.x.toFixed(1)},${pt.y.toFixed(1)})`);
+        });
+      }
+      this.raf = this.flows.length ? requestAnimationFrame(tt => this.tick(tt)) : 0;
+    }
+    clear() {
+      cancelAnimationFrame(this.raf); this.raf = 0;
+      this.flows.forEach(f => f.packets.forEach(p => p.remove()));
+      this.flows = [];
+    }
+  }
+
+  /* -------------------------------------------------------- Diagram (base) */
+  const TONES = ['default', 'accent', 'accent2', 'good', 'warn', 'bad', 'muted'];
+  const TONE_VAR = { default: 'var(--ink-3)', accent: 'var(--accent)', accent2: 'var(--accent-2)', good: 'var(--good)', warn: 'var(--warn)', bad: 'var(--bad)', muted: 'var(--ink-3)' };
+
+  class Diagram extends Component {
+    static create(el, slide) {
+      const spec = readJSON(el);
+      if (!spec) return null;
+      return spec.type === 'sequence' ? new SequenceDiagram(el, slide, spec) : new FlowDiagram(el, slide, spec);
+    }
+    constructor(el, slide, spec) {
+      super(el, slide);
+      this.spec = spec;
+      this.svg = svgEl('svg', { class: 'dg', role: 'img', 'aria-label': spec.title || 'diagram', preserveAspectRatio: 'xMidYMid meet' });
+      el.appendChild(this.svg);
+      this.defs = svgEl('defs', null, this.svg);
+      this.markers();
+      this.caption = null;
+      if ((spec.steps || []).some(s => s.caption) || spec.caption) {
+        this.caption = document.createElement('div');
+        this.caption.className = 'diagram-caption';
+        this.caption.innerHTML = spec.caption || '';
+        el.appendChild(this.caption);
+      }
+      if (spec.legend) this.legend(spec.legend);
+    }
+    markers() {
+      this.uid = 'dg' + Math.random().toString(36).slice(2, 8);
+      for (const t of TONES) {
+        for (const kind of ['end', 'start']) {
+          const m = svgEl('marker', { id: `${this.uid}-${kind}-${t}`, viewBox: '0 0 12 12', refX: 10, refY: 6, markerWidth: 16, markerHeight: 16, orient: 'auto-start-reverse', markerUnits: 'userSpaceOnUse' }, this.defs);
+          const p = svgEl('path', { d: 'M1,1 L11,6 L1,11 L3.5,6 Z' }, m);
+          p.style.fill = TONE_VAR[t];
+        }
+      }
+    }
+    markerUrl(kind, tone) { return `url(#${this.uid}-${kind}-${TONES.includes(tone) ? tone : 'default'})`; }
+    legend(items) {
+      const lg = document.createElement('div'); lg.className = 'diagram-legend';
+      items.forEach(it => {
+        const s = document.createElement('span');
+        const i = document.createElement('i');
+        if (it.style === 'dashed' || it.style === 'async') i.className = 'dashed';
+        if (it.style === 'box') i.className = 'box';
+        i.style.setProperty('--sw', TONE_VAR[it.tone || 'default']);
+        s.append(i, document.createTextNode(it.label));
+        lg.appendChild(s);
+      });
+      this.el.appendChild(lg);
+    }
+    setCaption(html, animate) {
+      if (!this.caption || this.caption.innerHTML === html) return;
+      this.caption.innerHTML = html;
+      if (animate) Motion.play(this.caption, [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: 420 });
+    }
+    /** Fit a label into maxW: shrink, then wrap to 2 lines. Returns the <text>. */
+    fitText(parent, str, { x = 0, y = 0, size = 26, min = 15, maxW = 180, cls = 'node-label', lineH = 1.15 }) {
+      const t = svgEl('text', { class: cls, x, y }, parent);
+      const words = String(str).split(/\s+/);
+      const render = (fs) => {
+        t.textContent = ''; t.setAttribute('font-size', fs);
+        const one = svgEl('tspan', { x }, t); one.textContent = str;
+        if (one.getComputedTextLength() <= maxW || words.length === 1) return one.getComputedTextLength() <= maxW;
+        // greedy 2-line split at the most balanced point
+        t.textContent = '';
+        let best = null;
+        for (let i = 1; i < words.length; i++) {
+          const a = words.slice(0, i).join(' '), b = words.slice(i).join(' ');
+          const diff = Math.abs(a.length - b.length);
+          if (!best || diff < best.diff) best = { a, b, diff };
+        }
+        const l1 = svgEl('tspan', { x, dy: `${-lineH / 2}em` }, t); l1.textContent = best.a;
+        const l2 = svgEl('tspan', { x, dy: `${lineH}em` }, t); l2.textContent = best.b;
+        return Math.max(l1.getComputedTextLength(), l2.getComputedTextLength()) <= maxW;
+      };
+      let fs = size;
+      while (!render(fs) && fs > min) fs -= 1;
+      return t;
+    }
+  }
+
+  /* ------------------------------------------------------------ FlowDiagram */
+  class FlowDiagram extends Diagram {
+    constructor(el, slide, spec) {
+      super(el, slide, spec);
+      this.steps = spec.steps || [];
+      const [cw, ch] = spec.cell || [270, 160];
+      const [nw, nh] = spec.node || [210, 92];
+      this.cw = cw; this.ch = ch; this.nw = nw; this.nh = nh;
+      this.nodes = new Map(); this.edges = new Map(); this.groups = new Map();
+      this.layout();
+      this.layers = {
+        lanes: svgEl('g', { class: 'layer-lanes' }, this.svg),
+        groups: svgEl('g', { class: 'layer-groups' }, this.svg),
+        edges: svgEl('g', { class: 'layer-edges' }, this.svg),
+        nodes: svgEl('g', { class: 'layer-nodes' }, this.svg),
+        labels: svgEl('g', { class: 'layer-labels' }, this.svg),
+        packets: svgEl('g', { class: 'layer-packets' }, this.svg),
+      };
+      this.flow = new FlowAnimator(this.layers.packets);
+      this.drawLanes(); this.drawGroups(); this.drawNodes(); this.drawEdges();
+      this.computeInitial();
+      this.applied = -1;
+    }
+    get stepCount() { return this.steps.length; }
+
+    /* --- geometry --- */
+    layout() {
+      const s = this.spec;
+      const nodes = s.nodes || [];
+      let maxC = 0, maxR = 0;
+      nodes.forEach(n => { const [c, r] = n.at || [0, 0]; maxC = Math.max(maxC, c); maxR = Math.max(maxR, r); });
+      (s.lanes || []).forEach((l, i) => { maxR = Math.max(maxR, (l.row != null ? l.row : i) + (l.span || 1) - 1); });
+      this.cols = (s.grid && s.grid[0]) || maxC + 1;
+      this.rows = (s.grid && s.grid[1]) || maxR + 1;
+      this.padL = (s.lanes ? 200 : 40); this.pad = 40;
+      // Fit-to-box: stretch cells (never shrink) so the grid uses the space the slide gives it.
+      if (s.fit !== false) {
+        const r = this.svg.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          const box = r.width / r.height;
+          const W0 = this.padL + this.cols * this.cw + this.pad, H0 = this.pad * 2 + this.rows * this.ch;
+          const cap = s.maxStretch || 1.9;
+          if (W0 / H0 < box) this.cw *= Math.min(cap, ((box * H0) - this.padL - this.pad) / (this.cols * this.cw));
+          else this.ch *= Math.min(cap, ((W0 / box) - this.pad * 2) / (this.rows * this.ch));
+        }
+      }
+      this.W = this.padL + this.cols * this.cw + this.pad;
+      this.H = this.pad * 2 + this.rows * this.ch;
+      this.svg.setAttribute('viewBox', `0 0 ${Math.round(this.W)} ${Math.round(this.H)}`);
+    }
+    center(at) { return { x: this.padL + (at[0] + 0.5) * this.cw, y: this.pad + (at[1] + 0.5) * this.ch }; }
+
+    /* --- lanes (swimlanes) --- */
+    drawLanes() {
+      (this.spec.lanes || []).forEach((ln, i) => {
+        const row = ln.row != null ? ln.row : i, span = ln.span || 1;
+        const g = svgEl('g', { class: 'lane el', 'data-id': ln.id || `lane${i}` }, this.layers.lanes);
+        svgEl('rect', { x: 8, y: this.pad + row * this.ch + 4, width: this.W - 16, height: span * this.ch - 8, rx: 10 }, g);
+        const t = svgEl('text', { x: 36, y: this.pad + (row + span / 2) * this.ch, 'dominant-baseline': 'central' }, g);
+        t.textContent = ln.label;
+      });
+    }
+    /* --- nodes --- */
+    drawNodes() {
+      (this.spec.nodes || []).forEach(n => {
+        const c = this.center(n.at || [0, 0]);
+        const kind = n.kind || 'service';
+        let w = (n.size && n.size[0]) || this.nw, h = (n.size && n.size[1]) || this.nh;
+        if (kind === 'decision') { w = (n.size && n.size[0]) || this.nw * 1.05; h = (n.size && n.size[1]) || this.nh * 1.45; }
+        if (kind === 'actor' || kind === 'user') { w = (n.size && n.size[0]) || this.nw; h = (n.size && n.size[1]) || 120; }
+        const tone = n.tone || (['start', 'end', 'terminal'].includes(kind) ? 'accent' : 'default');
+        const g = svgEl('g', { class: `node el tone-${tone}${kind === 'external' ? ' is-ext' : ''}`, 'data-id': n.id, transform: `translate(${c.x},${c.y})` }, this.layers.nodes);
+        const body = svgEl('g', { class: 'node-body' }, g);
+        const box = this.drawShape(body, kind, w, h);
+        const inner = box.inner;
+        const hasSub = !!n.sub;
+        const lt = this.fitText(body, n.label || n.id, { x: 0, y: box.labelY + (hasSub ? -12 : 0), size: n.fontSize || 26, maxW: inner, cls: 'node-label' });
+        const wrapped = lt.childNodes.length > 1;
+        if (hasSub) {
+          if (wrapped) lt.setAttribute('y', box.labelY - 18);
+          this.fitText(body, n.sub, { x: 0, y: box.labelY + (wrapped ? 32 : 22), size: 18, min: 13, maxW: inner, cls: 'node-sub' });
+        }
+        if (n.badge) {
+          const bg = svgEl('g', { class: 'node-badge', transform: `translate(${-w / 2 + 14},${-h / 2})` }, body);
+          const r = svgEl('rect', { rx: 8, height: 26, y: -13 }, bg);
+          const t = svgEl('text', { x: 0, y: 1 }, bg); t.textContent = n.badge;
+          const bw = t.getComputedTextLength() + 18; r.setAttribute('width', bw); t.setAttribute('x', bw / 2);
+        }
+        const title = svgEl('title', null, g); title.textContent = n.tip || [n.label, n.sub].filter(Boolean).join(' — ');
+        this.nodes.set(n.id, { spec: n, g, body, x: c.x, y: c.y, w, h, kind, box });
+      });
+    }
+    drawShape(g, kind, w, h) {
+      const hw = w / 2, hh = h / 2;
+      let inner = w - 32, labelY = 0, sides = { l: -hw, r: hw, t: -hh, b: hh, cy: 0 };
+      switch (kind) {
+        case 'db': case 'database': {
+          const ry = Math.min(16, h * 0.16);
+          svgEl('path', { class: 'shape', d: `M${-hw},${-hh + ry} A${hw},${ry} 0 0 1 ${hw},${-hh + ry} V${hh - ry} A${hw},${ry} 0 0 1 ${-hw},${hh - ry} Z` }, g);
+          svgEl('ellipse', { class: 'shape shape-fill', cx: 0, cy: -hh + ry, rx: hw, ry }, g);
+          labelY = ry * 0.6; break;
+        }
+        case 'queue': case 'topic': case 'stream': {
+          svgEl('rect', { class: 'shape', x: -hw, y: -hh, width: w, height: h, rx: 12 }, g);
+          for (const dx of [14, 24]) {
+            svgEl('line', { class: 'shape', x1: -hw + dx, x2: -hw + dx, y1: -hh + 14, y2: hh - 14 }, g);
+            svgEl('line', { class: 'shape', x1: hw - dx, x2: hw - dx, y1: -hh + 14, y2: hh - 14 }, g);
+          }
+          inner = w - 70; break;
+        }
+        case 'actor': case 'user': {
+          const r = 30, cy = -hh + r;
+          svgEl('circle', { class: 'shape shape-fill', cx: 0, cy, r }, g);
+          svgEl('circle', { class: 'shape', cx: 0, cy: cy - 7, r: 9, style: 'fill:none' }, g);
+          svgEl('path', { class: 'shape', d: `M-16,${cy + 19} Q0,${cy - 4} 16,${cy + 19}`, style: 'fill:none' }, g);
+          labelY = cy + r + 28; inner = w;
+          sides = { l: -r, r: r, t: -hh, b: hh, cy };
+          break;
+        }
+        case 'decision': {
+          svgEl('polygon', { class: 'shape', points: `0,${-hh} ${hw},0 0,${hh} ${-hw},0` }, g);
+          inner = w * 0.62; break;
+        }
+        case 'start': case 'end': case 'terminal': {
+          svgEl('rect', { class: 'shape shape-accent', x: -hw, y: -hh, width: w, height: h, rx: hh }, g);
+          break;
+        }
+        case 'function': case 'lambda': {
+          const k = h * 0.32;
+          svgEl('polygon', { class: 'shape', points: `${-hw + k},${-hh} ${hw - k},${-hh} ${hw},0 ${hw - k},${hh} ${-hw + k},${hh} ${-hw},0` }, g);
+          inner = w - 2 * k; break;
+        }
+        case 'note': {
+          const f = 22;
+          svgEl('path', { class: 'shape shape-fill', d: `M${-hw},${-hh} H${hw - f} L${hw},${-hh + f} V${hh} H${-hw} Z` }, g);
+          break;
+        }
+        case 'cache': {
+          svgEl('rect', { class: 'shape', x: -hw, y: -hh, width: w, height: h, rx: 12 }, g);
+          svgEl('rect', { class: 'shape shape-fill', x: -hw + 8, y: -hh + 8, width: w - 16, height: h - 16, rx: 7, 'stroke-dasharray': '4 6' }, g);
+          inner = w - 40; break;
+        }
+        default: { // service | process | external | box | gateway
+          svgEl('rect', { class: 'shape', x: -hw, y: -hh, width: w, height: h, rx: kind === 'gateway' ? hh : 14 }, g);
+          if (kind === 'gateway') inner = w - h;
+        }
+      }
+      return { inner, labelY, sides };
+    }
+    /* --- groups (boundaries) --- */
+    drawGroups() {
+      (this.spec.groups || []).forEach(gr => {
+        const tone = gr.tone || 'default';
+        const g = svgEl('g', { class: `group el tone-${tone}${gr.style === 'solid' ? ' is-solid' : ''}`, 'data-id': gr.id }, this.layers.groups);
+        this.groups.set(gr.id, { spec: gr, g });
+      });
+    }
+    sizeGroups() {
+      this.groups.forEach(({ spec, g }) => {
+        let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+        (spec.nodes || []).forEach(id => {
+          const n = this.nodes.get(id); if (!n) return;
+          x1 = Math.min(x1, n.x - n.w / 2); x2 = Math.max(x2, n.x + n.w / 2);
+          y1 = Math.min(y1, n.y - n.h / 2); y2 = Math.max(y2, n.y + n.h / 2);
+        });
+        if (!isFinite(x1)) return;
+        const pad = spec.pad || 26, top = 46;
+        g.innerHTML = '';
+        svgEl('rect', { class: 'zone', x: x1 - pad, y: y1 - pad - top + 14, width: x2 - x1 + pad * 2, height: y2 - y1 + pad * 2 + top - 14, rx: 16 }, g);
+        const t = svgEl('text', { x: x1 - pad + 20, y: y1 - pad - top + 44 }, g); t.textContent = spec.label || '';
+      });
+    }
+    /* --- edges --- */
+    anchor(n, side, off = 0) {
+      const s = n.box.sides;
+      switch (side) {
+        case 'l': return { x: n.x + s.l, y: n.y + s.cy + off };
+        case 'r': return { x: n.x + s.r, y: n.y + s.cy + off };
+        case 't': return { x: n.x + off, y: n.y + s.t };
+        default: return { x: n.x + off, y: n.y + s.b };
+      }
+    }
+    chooseSides(a, b, e) {
+      if (e.fromSide && e.toSide) return [e.fromSide, e.toSide];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      // bias toward the diagram's reading direction so edges follow the story
+      const bias = (this.spec.direction || 'lr') === 'tb' ? 1 / 0.6 : 0.6;
+      const horiz = Math.abs(dx) / this.cw >= (Math.abs(dy) / this.ch) * bias;
+      let fs, ts;
+      if (horiz) { fs = dx >= 0 ? 'r' : 'l'; ts = dx >= 0 ? 'l' : 'r'; }
+      else { fs = dy >= 0 ? 'b' : 't'; ts = dy >= 0 ? 't' : 'b'; }
+      return [e.fromSide || fs, e.toSide || ts];
+    }
+    drawEdges() {
+      this.sizeGroups();
+      const list = (this.spec.edges || []).map(e => Object.assign({ id: e.id || `${e.from}>${e.to}` }, e));
+      // ports: spread multiple edges leaving/entering the same side
+      const ports = new Map();
+      const plan = list.map(e => {
+        const a = this.nodes.get(e.from), b = this.nodes.get(e.to);
+        if (!a || !b) { console.warn('[DeckKit] edge references unknown node', e); return null; }
+        const [fs, ts] = this.chooseSides(a, b, e);
+        const p = { e, a, b, fs, ts, fo: 0, to: 0 };
+        for (const [node, side, key, other] of [[a, fs, 'fo', b], [b, ts, 'to', a]]) {
+          const k = node.spec.id + ':' + side;
+          if (!ports.has(k)) ports.set(k, []);
+          ports.get(k).push({ p, key, sort: (side === 'l' || side === 'r') ? other.y : other.x });
+        }
+        return p;
+      }).filter(Boolean);
+      ports.forEach(items => {
+        if (items.length < 2) return;
+        items.sort((u, v) => u.sort - v.sort);
+        const gap = 22;
+        items.forEach((it, i) => { it.p[it.key] = (i - (items.length - 1) / 2) * gap; });
+      });
+      plan.forEach(({ e, a, b, fs, ts, fo, to }) => {
+        if (e.offset) { fo += e.offset; to += e.offset; }
+        const S = this.anchor(a, fs, fo), E = this.anchor(b, ts, to);
+        const d = this.route(S, E, fs, ts, e);
+        const tone = e.tone || 'default';
+        const style = e.style === 'async' ? 'dashed' : e.style;
+        const g = svgEl('g', { class: `edge el tone-${tone}${style ? ' is-' + style : ''}`, 'data-id': e.id }, this.layers.edges);
+        const path = svgEl('path', { class: 'line', d }, g);
+        const dir = e.dir || 'forward';
+        if (dir === 'forward' || dir === 'both') path.setAttribute('marker-end', this.markerUrl('end', tone));
+        if (dir === 'back' || dir === 'both') path.setAttribute('marker-start', this.markerUrl('start', tone));
+        let label = null;
+        if (e.label) {
+          label = svgEl('g', { class: 'edge-label' }, g);
+          const len = path.getTotalLength();
+          const pt = path.getPointAtLength(len * (e.labelAt != null ? e.labelAt : 0.5));
+          const r = svgEl('rect', { rx: 8, height: 34 }, label);
+          const t = svgEl('text', { x: pt.x, y: pt.y }, label); t.textContent = e.label;
+          const w = t.getComputedTextLength() + 22;
+          r.setAttribute('x', pt.x - w / 2); r.setAttribute('y', pt.y - 17); r.setAttribute('width', w);
+        }
+        this.edges.set(e.id, { spec: e, g, path, tone, dir, from: e.from, to: e.to });
+      });
+    }
+    route(S, E, fs, ts, e) {
+      const mode = e.route || this.spec.route || 'elbow';
+      if (e.via) {
+        const pts = [S, ...e.via.map(v => this.center(v)), E];
+        return this.rounded(pts, 16);
+      }
+      if (mode === 'straight') return `M${S.x},${S.y} L${E.x},${E.y}`;
+      const horizFrom = fs === 'l' || fs === 'r', horizTo = ts === 'l' || ts === 'r';
+      if (mode === 'curve') {
+        const k = Math.max(60, (horizFrom ? Math.abs(E.x - S.x) : Math.abs(E.y - S.y)) * 0.5);
+        const c1 = { x: S.x + (fs === 'r' ? k : fs === 'l' ? -k : 0), y: S.y + (fs === 'b' ? k : fs === 't' ? -k : 0) };
+        const c2 = { x: E.x + (ts === 'r' ? k : ts === 'l' ? -k : 0), y: E.y + (ts === 'b' ? k : ts === 't' ? -k : 0) };
+        return `M${S.x},${S.y} C${c1.x},${c1.y} ${c2.x},${c2.y} ${E.x},${E.y}`;
+      }
+      // elbow (orthogonal, rounded corners)
+      let pts;
+      if (horizFrom && horizTo) {
+        if (Math.abs(S.y - E.y) < 1) pts = [S, E];
+        else { const mx = S.x + (E.x - S.x) * (e.bendAt != null ? e.bendAt : 0.5); pts = [S, { x: mx, y: S.y }, { x: mx, y: E.y }, E]; }
+      } else if (!horizFrom && !horizTo) {
+        if (Math.abs(S.x - E.x) < 1) pts = [S, E];
+        else { const my = S.y + (E.y - S.y) * (e.bendAt != null ? e.bendAt : 0.5); pts = [S, { x: S.x, y: my }, { x: E.x, y: my }, E]; }
+      } else if (horizFrom) pts = [S, { x: E.x, y: S.y }, E];
+      else pts = [S, { x: S.x, y: E.y }, E];
+      return this.rounded(pts, 18);
+    }
+    rounded(pts, r) {
+      let d = `M${pts[0].x},${pts[0].y}`;
+      for (let i = 1; i < pts.length - 1; i++) {
+        const p0 = pts[i - 1], p = pts[i], p1 = pts[i + 1];
+        const d0 = Math.hypot(p.x - p0.x, p.y - p0.y), d1 = Math.hypot(p1.x - p.x, p1.y - p.y);
+        const rr = Math.min(r, d0 / 2, d1 / 2);
+        const a = { x: p.x + (p0.x - p.x) * rr / d0, y: p.y + (p0.y - p.y) * rr / d0 };
+        const b = { x: p.x + (p1.x - p.x) * rr / d1, y: p.y + (p1.y - p.y) * rr / d1 };
+        d += ` L${a.x},${a.y} Q${p.x},${p.y} ${b.x},${b.y}`;
+      }
+      const last = pts[pts.length - 1];
+      return d + ` L${last.x},${last.y}`;
+    }
+
+    /* --- step state --- */
+    allEls() { return [...this.nodes.values(), ...this.edges.values(), ...this.groups.values()]; }
+    elById(id) { return this.nodes.get(id) || this.edges.get(id) || this.groups.get(id) || this.edgeByPair(id); }
+    edgeByPair(id) { // "a>b" or "a-b"
+      const m = /^(.+?)\s*[>-]\s*(.+)$/.exec(id); if (!m) return null;
+      for (const e of this.edges.values()) if ((e.from === m[1] && e.to === m[2]) || (e.from === m[2] && e.to === m[1])) return e;
+      return null;
+    }
+    computeInitial() {
+      this.revealedLater = new Set();
+      this.steps.forEach(s => arr(s.show).forEach(id => this.revealedLater.add(id)));
+    }
+    stateAt(local) {
+      const visible = new Set();
+      this.nodes.forEach((_, id) => { if (!this.revealedLater.has(id)) visible.add(id); });
+      this.groups.forEach((_, id) => { if (!this.revealedLater.has(id)) visible.add(id); });
+      for (let i = 0; i < local; i++) {
+        const s = this.steps[i];
+        arr(s.show).forEach(id => { const el = this.elById(id); if (el) visible.add(el.spec.id || id); });
+        arr(s.hide).forEach(id => { const el = this.elById(id); if (el) visible.delete(el.spec.id || id); });
+      }
+      // edges: explicit reveal, or auto when both endpoints visible
+      this.edges.forEach((e, id) => {
+        const explicit = this.revealedLater.has(id) || [...this.revealedLater].some(r => this.edgeByPair(r) === e);
+        if (explicit) return; // handled above
+        if (visible.has(e.from) && visible.has(e.to)) visible.add(id);
+      });
+      return visible;
+    }
+    setStep(k, ctx = {}) {
+      const local = this.localStep(k);
+      const prev = this.applied;
+      this.applied = local;
+      const visible = this.stateAt(local);
+      // static renders (print / overview) show the full picture without transient emphasis
+      const step = ctx.static ? { caption: this.spec.caption || '' } : local > 0 ? this.steps[local - 1] : (this.spec.initial || {});
+      const animate = ctx.animate && local > prev;
+
+      // visibility + entrance animation
+      this.nodes.forEach((n, id) => this.toggle(n, visible.has(id), animate, 'node'));
+      this.groups.forEach((g, id) => this.toggle(g, visible.has(id), animate, 'group'));
+      this.edges.forEach((e, id) => this.toggle(e, visible.has(id), animate, 'edge'));
+
+      // transient emphasis
+      const hl = new Set(arr(step.highlight).concat(arr(step.focus)));
+      const pulse = new Set(arr(step.pulse));
+      const focus = arr(step.focus);
+      const dimAll = focus.length > 0;
+      const dim = new Set(arr(step.dim));
+      this.allEls().forEach(o => {
+        const id = o.spec.id;
+        const isHl = hl.has(id) || [...hl].some(h => this.edgeByPair(h) === o);
+        o.g.classList.toggle('is-hl', isHl);
+        o.g.classList.toggle('is-pulse', pulse.has(id));
+        const isGroup = this.groups.has(id) && this.groups.get(id) === o;
+        const keep = isHl || (o.from && hl.has(o.from) && hl.has(o.to));
+        o.g.classList.toggle('is-dim', dim.has(id) || (dimAll && !keep && !isGroup));
+      });
+      this.edges.forEach(e => this.setMarkers(e, e.g.classList.contains('is-hl') ? 'accent' : e.tone));
+
+      // flows
+      this.flow.clear();
+      this.edges.forEach(e => { e.g.classList.remove('is-active'); e.g.style.removeProperty('--flow-c'); });
+      if (this.slide.isActive || ctx.force) this.startFlows(step, ctx);
+      this.setCaption(step.caption || (local === 0 ? (this.spec.caption || '') : ''), animate);
+    }
+    startFlows(step, ctx) {
+      arr(step.flow).forEach(f => {
+        const spec = typeof f === 'string' ? { path: f } : f;
+        const color = spec.tone ? TONE_VAR[spec.tone] : null;
+        const route = [];
+        if (spec.edge) {
+          const e = this.edges.get(spec.edge); if (e) route.push({ path: e.path, reverse: !!spec.reverse, e });
+        } else {
+          const ids = String(spec.path).split('>').map(s => s.trim());
+          for (let i = 0; i < ids.length - 1; i++) {
+            const a = ids[i], b = ids[i + 1];
+            let e = [...this.edges.values()].find(x => x.from === a && x.to === b);
+            let reverse = false;
+            if (!e) { e = [...this.edges.values()].find(x => x.from === b && x.to === a); reverse = !!e; }
+            if (!e) { console.warn('[DeckKit] no edge for flow segment', a, '→', b); continue; }
+            route.push({ path: e.path, reverse, e });
+          }
+        }
+        route.forEach(r => {
+          r.e.g.classList.add('is-active');
+          if (color) r.e.g.style.setProperty('--flow-c', color);
+          this.setMarkers(r.e, spec.tone || 'accent');
+        });
+        if (!Motion.reduced && !ctx.static && route.length) this.flow.add(route, Object.assign({}, spec, { color }));
+      });
+    }
+    setMarkers(e, tone) {
+      const fwd = e.dir === 'forward' || e.dir === 'both', back = e.dir === 'back' || e.dir === 'both';
+      if (fwd) e.path.setAttribute('marker-end', this.markerUrl('end', tone)); else e.path.removeAttribute('marker-end');
+      if (back) e.path.setAttribute('marker-start', this.markerUrl('start', tone)); else e.path.removeAttribute('marker-start');
+    }
+    toggle(o, show, animate, kind) {
+      const was = !o.g.classList.contains('is-hidden');
+      o.g.classList.toggle('is-hidden', !show);
+      if (!animate || !show || was) return;
+      if (kind === 'node') Motion.play(o.body, [{ transform: 'scale(.82)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }], { duration: 640, easing: Motion.ease.spring });
+      if (kind === 'edge') {
+        const len = o.path.getTotalLength();
+        Motion.play(o.path, [{ strokeDasharray: `${len} ${len}`, strokeDashoffset: len }, { strokeDasharray: `${len} ${len}`, strokeDashoffset: 0 }], { duration: Math.min(1100, 300 + len * 0.9), easing: Motion.ease.inOut, delay: 120 });
+      }
+      if (kind === 'group') Motion.play(o.g, [{ opacity: 0 }, { opacity: 1 }], { duration: 700 });
+    }
+    leave() { this.flow.clear(); }
+  }
+
+  /* -------------------------------------------------------- SequenceDiagram */
+  class SequenceDiagram extends Diagram {
+    constructor(el, slide, spec) {
+      super(el, slide, spec);
+      const parts = spec.participants || [];
+      let gap = spec.gap || 330, rowH = spec.rowH || 74;
+      const headH = 72, top = 20, m = 140, nMsg = (spec.messages || []).length;
+      if (spec.fit !== false) { // stretch rows / columns to fill the slot
+        const r = this.svg.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          const box = r.width / r.height;
+          const W0 = m * 2 + (parts.length - 1) * gap, H0 = top + headH + 80 + nMsg * rowH;
+          if (W0 / H0 > box) rowH *= clamp(((W0 / box) - (top + headH + 80)) / (nMsg * rowH), 1, 1.8);
+          else if (parts.length > 1) gap *= clamp(((box * H0) - m * 2) / ((parts.length - 1) * gap), 1, 1.6);
+        }
+      }
+      this.rowH = rowH;
+      this.x = new Map(parts.map((p, i) => [p.id, m + i * gap]));
+      const msgs = spec.messages || [];
+      // step assignment: each message is its own step unless step given / with:'prev'
+      let counter = 0;
+      this.items = msgs.map((msg, i) => {
+        let st;
+        if (msg.step != null) { st = msg.step; counter = Math.max(counter, st); }
+        else if (msg.with === 'prev' && i > 0) st = counter;
+        else st = ++counter;
+        return Object.assign({ _step: spec.stepwise === false ? 0 : st, _row: i }, msg);
+      });
+      this.count = spec.stepwise === false ? 0 : counter;
+      const H = top + headH + 50 + msgs.length * rowH + 30;
+      const W = m * 2 + (parts.length - 1) * gap;
+      this.svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+      const lifeL = svgEl('g', null, this.svg), msgL = svgEl('g', null, this.svg), headL = svgEl('g', null, this.svg);
+      this.packets = svgEl('g', null, this.svg);
+      this.flow = new FlowAnimator(this.packets);
+      parts.forEach(p => {
+        const x = this.x.get(p.id);
+        svgEl('line', { class: 'lifeline', x1: x, x2: x, y1: top + headH, y2: H - 10 }, lifeL);
+        const g = svgEl('g', { class: `seq-head tone-${p.tone || 'default'}`, transform: `translate(${x},${top + headH / 2})` }, headL);
+        svgEl('rect', { x: -130, y: -headH / 2, width: 260, height: headH, rx: 14 }, g);
+        this.fitText(g, p.label || p.id, { size: 24, maxW: 230 });
+        if (p.sub) { /* sub shown as tooltip to keep heads compact */ const t = svgEl('title', null, g); t.textContent = p.sub; }
+      });
+      this.items.forEach(it => {
+        const y = top + headH + 50 + it._row * rowH;
+        const g = svgEl('g', { class: `msg el tone-${it.tone || 'default'}${it.kind === 'reply' ? ' is-reply' : ''}` }, msgL);
+        it.g = g;
+        if (it.note) {
+          const xs = arr(it.over || it.from).map(id => this.x.get(id));
+          const x1 = Math.min(...xs) - 120, x2 = Math.max(...xs) + 120;
+          const ng = svgEl('g', { class: 'seq-note' }, g);
+          svgEl('rect', { x: x1, y: y - 24, width: x2 - x1, height: 48, rx: 8 }, ng);
+          const t = svgEl('text', { x: (x1 + x2) / 2, y }, ng); t.textContent = it.note;
+          return;
+        }
+        const x1 = this.x.get(it.from), x2 = this.x.get(it.to);
+        let d;
+        if (it.from === it.to) d = `M${x1},${y - 10} H${x1 + 90} V${y + 22} H${x1 + 6}`;
+        else d = `M${x1 + (x2 > x1 ? 6 : -6)},${y + 10} H${x2 + (x2 > x1 ? -8 : 8)}`;
+        it.path = svgEl('path', { d, 'marker-end': this.markerUrl('end', it.tone || 'default') }, g);
+        const t = svgEl('text', { x: it.from === it.to ? x1 + 100 : (x1 + x2) / 2, y: y - 4, 'text-anchor': it.from === it.to ? 'start' : 'middle' }, g);
+        t.textContent = it.label || '';
+      });
+      this.applied = -1;
+    }
+    get stepCount() { return this.count; }
+    setStep(k, ctx = {}) {
+      const local = this.localStep(k), prev = this.applied; this.applied = local;
+      const animate = ctx.animate && local > prev;
+      this.flow.clear();
+      this.items.forEach(it => {
+        const show = it._step <= local;
+        const wasHidden = it.g.classList.contains('is-hidden');
+        it.g.classList.toggle('is-hidden', !show);
+        const cur = !ctx.static && this.count > 0 && it._step === local;
+        it.g.classList.toggle('is-current', cur);
+        if (it.path) it.path.setAttribute('marker-end', this.markerUrl('end', cur ? 'accent' : (it.tone || 'default')));
+        if (show && wasHidden && animate && it.path) {
+          const len = it.path.getTotalLength();
+          Motion.play(it.path, [{ strokeDasharray: `${len} ${len}`, strokeDashoffset: len }, { strokeDasharray: `${len} ${len}`, strokeDashoffset: 0 }], { duration: 650, easing: Motion.ease.inOut });
+          if (!Motion.reduced) this.flow.add([{ path: it.path, reverse: false }], { loop: false, speed: 1.4, label: it.payload });
+        }
+      });
+      const capItem = this.items.filter(it => it._step === local && it.caption).pop();
+      this.setCaption(capItem ? capItem.caption : (this.spec.caption || ''), animate);
+    }
+    leave() { this.flow.clear(); }
+  }
+
+  /* -------------------------------------------------------------- CodeBlock */
+  class CodeBlock extends Component {
+    constructor(el, slide) {
+      super(el, slide);
+      this.focus = el.dataset.lines ? JSON.parse(el.dataset.lines) : [];
+      const raw = el.textContent.replace(/^\n/, '').replace(/\s+$/, '');
+      const lang = el.dataset.lang || '';
+      el.innerHTML = raw.split('\n').map(l => `<span class="line">${CodeBlock.highlight(l, lang) || ' '}</span>`).join('');
+      this.lines = [...el.querySelectorAll('.line')];
+      // shrink-to-fit long lines (never below 15px) rather than clip them
+      let fs = parseFloat(getComputedStyle(el).fontSize) || 24;
+      while (el.clientWidth > 0 && el.scrollWidth > el.clientWidth + 1 && fs > 18) { fs -= 1; el.style.fontSize = fs + 'px'; }
+    }
+    static highlight(line, lang) {
+      const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const KW = /\b(abstract|async|await|break|case|catch|class|const|continue|def|default|do|else|enum|export|extends|final|finally|for|from|func|function|if|implements|import|in|interface|let|new|null|nil|package|private|protected|public|return|static|super|switch|this|throw|throws|try|type|var|void|while|with|yield|true|false|None|True|False|SELECT|FROM|WHERE|JOIN|ON|GROUP|BY|ORDER|INSERT|INTO|VALUES|UPDATE|SET|DELETE|CREATE|TABLE|AND|OR|NOT|AS|LIMIT|record|sealed|val|fun|override)\b/;
+      const re = /(\/\/.*$|#(?![{\w]*\}).*$|--\s.*$)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`[^`]*`)|(@[\w.]+)|(\b\d+(?:\.\d+)?\b)|(\b[A-Z][A-Za-z0-9_]+\b)|(\b[A-Za-z_]\w*\b)/g;
+      let out = '', last = 0, m;
+      if (lang === 'text') return esc(line);
+      while ((m = re.exec(line))) {
+        out += esc(line.slice(last, m.index));
+        const [tok] = m;
+        if (m[1] && lang !== 'json') out += `<span class="t-c">${esc(tok)}</span>`;
+        else if (m[2]) out += `<span class="t-s">${esc(tok)}</span>`;
+        else if (m[3]) out += `<span class="t-a">${esc(tok)}</span>`;
+        else if (m[4]) out += `<span class="t-n">${esc(tok)}</span>`;
+        else if (m[6] && KW.test(tok)) out += `<span class="t-k">${esc(tok)}</span>`;
+        else if (m[5] && !KW.test(tok)) out += `<span class="t-t">${esc(tok)}</span>`;
+        else if (m[5]) out += `<span class="t-k">${esc(tok)}</span>`;
+        else out += esc(tok);
+        last = m.index + tok.length;
+      }
+      return out + esc(line.slice(last));
+    }
+    get stepCount() { return this.focus.length; }
+    setStep(k, ctx = {}) {
+      const local = this.localStep(k);
+      const set = local > 0 && !ctx.static ? parseRanges(this.focus[local - 1]) : null;
+      this.el.classList.toggle('has-focus', !!set);
+      this.lines.forEach((l, i) => l.classList.toggle('is-focus', !!set && set.has(i + 1)));
+      if (set && set.size) {
+        const first = this.lines[Math.min(...set) - 1];
+        if (first && this.el.scrollHeight > this.el.clientHeight) this.el.scrollTo({ top: first.offsetTop - 60, behavior: Motion.reduced ? 'auto' : 'smooth' });
+      }
+    }
+  }
+
+  /* ---------------------------------------------------------------- CountUp */
+  class CountUp extends Component {
+    constructor(el, slide) {
+      super(el, slide);
+      const d = el.dataset;
+      this.to = parseFloat(d.to); this.from = parseFloat(d.from || '0');
+      this.dec = parseInt(d.decimals || '0', 10); this.pre = d.prefix || ''; this.suf = d.suffix || '';
+      this.done = false; this.render(this.to);
+    }
+    fmt(v) { return this.pre + v.toLocaleString(undefined, { minimumFractionDigits: this.dec, maximumFractionDigits: this.dec }) + this.suf; }
+    render(v) { this.el.textContent = this.fmt(v); }
+    visible() { const b = this.el.closest('[data-step]'); return !b || b.classList.contains('is-shown'); }
+    setStep(_k, ctx = {}) {
+      if (ctx.static || this.slide.deck.printing) { this.done = false; this.render(this.to); return; }
+      const vis = this.visible() && this.slide.isActive;
+      if (!vis) { this.done = false; this.render(this.from); return; }
+      if (this.done) return;
+      this.done = true;
+      if (!ctx.animate || Motion.reduced) { this.render(this.to); return; }
+      const t0 = performance.now(), dur = parseInt(this.el.dataset.duration || '1400', 10);
+      const tick = now => {
+        const p = clamp((now - t0) / dur, 0, 1), e = 1 - Math.pow(1 - p, 4);
+        this.render(this.from + (this.to - this.from) * e);
+        if (p < 1 && this.done) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    }
+    leave() { this.done = false; }
+  }
+
+  /* ------------------------------------------------------------------ Slide */
+  class Slide {
+    constructor(el, index, deck) {
+      this.el = el; this.index = index; this.deck = deck;
+      this.notes = (el.querySelector(':scope > aside.notes') || {}).innerHTML || '';
+      const h = el.querySelector('h1, h2, .statement');
+      this.title = el.dataset.title || (h ? h.textContent.trim() : `Slide ${index + 1}`);
+      this.builds = [...el.querySelectorAll('[data-step]')].map(b => new Build(b));
+      const byStep = {};
+      this.builds.forEach(b => { const i = byStep[b.step] = (byStep[b.step] || 0); b.el.style.setProperty('--i', i); byStep[b.step]++; });
+      this.components = [];
+      Deck.registry.forEach(({ selector, factory }) => {
+        el.querySelectorAll(selector).forEach(node => {
+          const c = factory(node, this); if (c) this.components.push(c);
+        });
+      });
+    }
+    get isActive() { return this.deck.slide === this && !this.deck.printing; }
+    get stepCount() {
+      return Math.max(0, ...this.builds.map(b => b.lastStep), ...this.components.map(c => c.lastStep));
+    }
+    setStep(k, ctx) {
+      this.builds.forEach(b => b.apply(k));
+      this.components.forEach(c => c.setStep(k, ctx));
+    }
+    enter(k) { this.components.forEach(c => c.enter(k)); }
+    leave() { this.components.forEach(c => c.leave()); }
+  }
+
+  /* ---------------------------------------------------------- PresenterView */
+  class PresenterView {
+    constructor(deck) { this.deck = deck; this.win = null; this.t0 = Date.now(); }
+    open() {
+      if (this.win && !this.win.closed) { this.win.focus(); return; }
+      this.win = window.open('', 'deckkit-presenter', 'width=1100,height=760');
+      if (!this.win) { alert('Allow pop-ups to open presenter view.'); return; }
+      const d = this.win.document;
+      d.open();
+      d.write(`<!doctype html><title>Presenter — ${document.title}</title><style>
+        body{margin:0;font:18px/1.5 system-ui,sans-serif;background:#0B0E13;color:#E6EBF2;display:grid;grid-template-rows:auto 1fr auto;height:100vh}
+        header,footer{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;background:#121720}
+        #timer{font:700 34px ui-monospace,monospace;color:#7DD3FC} #clock{font:500 20px ui-monospace,monospace;color:#94A3B8}
+        main{display:grid;grid-template-columns:2fr 1fr;gap:0;min-height:0}
+        #notes{padding:24px 32px;overflow:auto;font-size:24px;line-height:1.55} #notes:empty::before{content:"No notes for this slide.";color:#64748B}
+        aside{border-left:1px solid #1F2733;padding:24px;display:flex;flex-direction:column;gap:12px}
+        .k{font:600 12px ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:#64748B}
+        #cur{font-size:26px;font-weight:650} #next{font-size:20px;color:#CBD5E1} #step{font:600 18px ui-monospace,monospace;color:#7DD3FC}
+        button{background:#1E293B;color:#E2E8F0;border:1px solid #334155;border-radius:8px;padding:10px 18px;font-size:16px;cursor:pointer}
+      </style><header><span id="timer">00:00</span><span id="clock"></span></header>
+      <main><div id="notes"></div><aside><div class="k">Now</div><div id="cur"></div><div id="step"></div><div class="k" style="margin-top:24px">Up next</div><div id="next"></div></aside></main>
+      <footer><span><button id="prev">◀ Prev</button> <button id="nxt">Next ▶</button></span><button id="reset">Reset timer</button></footer>`);
+      d.close();
+      d.getElementById('prev').onclick = () => this.deck.prev();
+      d.getElementById('nxt').onclick = () => this.deck.next();
+      d.getElementById('reset').onclick = () => { this.t0 = Date.now(); };
+      this.win.addEventListener('keydown', e => this.deck.onKey(e));
+      clearInterval(this.iv);
+      this.iv = setInterval(() => this.tick(), 500);
+      this.update();
+    }
+    tick() {
+      if (!this.win || this.win.closed) { clearInterval(this.iv); return; }
+      const s = Math.floor((Date.now() - this.t0) / 1000);
+      this.win.document.getElementById('timer').textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+      this.win.document.getElementById('clock').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    update() {
+      if (!this.win || this.win.closed) return;
+      const d = this.win.document, dk = this.deck, s = dk.slide, n = dk.slides[dk.index + 1];
+      d.getElementById('notes').innerHTML = s.notes;
+      d.getElementById('cur').textContent = `${dk.index + 1}. ${s.title}`;
+      d.getElementById('step').textContent = s.stepCount ? `Step ${dk.step} / ${s.stepCount}` : '';
+      d.getElementById('next').textContent = dk.step < s.stepCount ? '(next build on this slide)' : (n ? `${dk.index + 2}. ${n.title}` : '— end —');
+    }
+  }
+
+  /* ------------------------------------------------------------------- Deck */
+  class Deck {
+    static registry = [];
+    static register(selector, ComponentClassOrFactory) {
+      const factory = ComponentClassOrFactory.prototype instanceof Component
+        ? (el, s) => new ComponentClassOrFactory(el, s) : ComponentClassOrFactory;
+      Deck.registry.push({ selector, factory });
+    }
+
+    constructor(root) {
+      this.root = root;
+      this.stage = root.querySelector('.stage');
+      this.title = document.querySelector('meta[name="deck-title"]')?.content || document.title;
+      this.index = 0; this.step = 0; this.printing = false;
+      document.documentElement.classList.add('js');
+      document.documentElement.classList.remove('no-js');
+      this.slides = [...this.stage.querySelectorAll(':scope > .slide')].map((el, i) => new Slide(el, i, this));
+      this.addFooters();
+      this.chrome();
+      this.presenter = new PresenterView(this);
+      this.bind();
+      this.fit();
+      const [i, s] = this.readHash();
+      this.go(i, s, { animate: false });
+    }
+
+    get slide() { return this.slides[this.index]; }
+
+    addFooters() {
+      const total = this.slides.length;
+      this.slides.forEach(s => {
+        const lay = s.el.dataset.layout;
+        if (s.el.dataset.footer === 'off' || lay === 'title' || lay === 'section' || s.el.querySelector(':scope > .slide-footer')) return;
+        const f = document.createElement('div'); f.className = 'slide-footer';
+        f.innerHTML = `<span>${s.el.dataset.footer || this.title}</span><span>${String(s.index + 1).padStart(2, '0')} / ${String(total).padStart(2, '0')}</span>`;
+        s.el.appendChild(f);
+      });
+    }
+    chrome() {
+      const mk = (cls, html = '') => { const d = document.createElement('div'); d.className = cls; d.innerHTML = html; document.body.appendChild(d); return d; };
+      this.bar = mk('deck-progress');
+      this.notesEl = mk('deck-overlay deck-notes');
+      this.helpEl = mk('deck-overlay deck-help', [
+        ['→ Space', 'Next'], ['←', 'Previous'], ['Home / End', 'First / last'], ['O', 'Overview'],
+        ['N', 'Speaker notes'], ['P', 'Presenter window'], ['F', 'Fullscreen'], ['B', 'Blackout'], ['#+Enter', 'Go to slide'], ['?', 'This help'],
+      ].map(([k, v]) => `<div><span><kbd>${k}</kbd></span><span>${v}</span></div>`).join(''));
+      this.blackEl = mk('deck-blackout');
+    }
+    bind() {
+      window.addEventListener('resize', () => this.fit());
+      document.addEventListener('keydown', e => this.onKey(e));
+      window.addEventListener('hashchange', () => { const [i, s] = this.readHash(); if (i !== this.index || s !== this.step) this.go(i, s, { animate: false }); });
+      this.stage.addEventListener('click', e => {
+        if (this.root.classList.contains('is-overview')) {
+          const sl = e.target.closest('.slide'); if (sl) { this.toggleOverview(); this.go(this.slides.findIndex(s => s.el === sl), 0); }
+          return;
+        }
+        if (e.target.closest('a, button, input, select, textarea, [data-no-advance]')) return;
+        if (window.getSelection && String(window.getSelection()).length) return;
+        (e.clientX < window.innerWidth * 0.25) ? this.prev() : this.next();
+      });
+      let tx = 0, ty = 0;
+      this.root.addEventListener('touchstart', e => { tx = e.touches[0].clientX; ty = e.touches[0].clientY; }, { passive: true });
+      this.root.addEventListener('touchend', e => {
+        const dx = e.changedTouches[0].clientX - tx, dy = e.changedTouches[0].clientY - ty;
+        if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) dx < 0 ? this.next() : this.prev();
+      });
+      window.addEventListener('beforeprint', () => this.preparePrint(true));
+      window.addEventListener('afterprint', () => this.preparePrint(false));
+    }
+    onKey(e) {
+      if (e.target.closest && e.target.closest('input, textarea, select')) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = e.key;
+      if (/^\d$/.test(k)) { this.typed = (this.typed || '') + k; clearTimeout(this.typedT); this.typedT = setTimeout(() => (this.typed = ''), 1500); return; }
+      const act = {
+        ArrowRight: () => this.next(), ArrowDown: () => this.next(), PageDown: () => this.next(), ' ': () => (e.shiftKey ? this.prev() : this.next()),
+        ArrowLeft: () => this.prev(), ArrowUp: () => this.prev(), PageUp: () => this.prev(), Backspace: () => this.prev(),
+        Home: () => this.go(0, 0), End: () => this.go(this.slides.length - 1, this.slides[this.slides.length - 1].stepCount),
+        Enter: () => { if (this.typed) { this.go(parseInt(this.typed, 10) - 1, 0); this.typed = ''; } else this.next(); },
+        o: () => this.toggleOverview(), O: () => this.toggleOverview(), Escape: () => this.closeOverlays(),
+        n: () => this.notesEl.classList.toggle('is-open'), N: () => this.notesEl.classList.toggle('is-open'),
+        p: () => this.presenter.open(), P: () => this.presenter.open(),
+        f: () => this.fullscreen(), F: () => this.fullscreen(),
+        b: () => this.blackEl.classList.toggle('is-open'), B: () => this.blackEl.classList.toggle('is-open'), '.': () => this.blackEl.classList.toggle('is-open'),
+        '?': () => this.helpEl.classList.toggle('is-open'),
+      }[k];
+      if (act) { e.preventDefault(); act(); }
+    }
+    closeOverlays() {
+      if (this.root.classList.contains('is-overview')) this.toggleOverview();
+      [this.notesEl, this.helpEl, this.blackEl].forEach(o => o.classList.remove('is-open'));
+    }
+    fullscreen() { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.(); }
+    fit() {
+      const s = Math.min(window.innerWidth / STAGE.w, window.innerHeight / STAGE.h);
+      this.root.style.setProperty('--scale', s);
+    }
+    readHash() {
+      const m = /^#\/(\d+)(?:\/(\d+))?/.exec(location.hash);
+      if (!m) return [0, 0];
+      const i = clamp(parseInt(m[1], 10) - 1, 0, this.slides.length - 1);
+      return [i, clamp(parseInt(m[2] || '0', 10), 0, this.slides[i].stepCount)];
+    }
+    writeHash() { history.replaceState(null, '', `#/${this.index + 1}${this.step ? '/' + this.step : ''}`); }
+
+    next() {
+      if (this.step < this.slide.stepCount) this.go(this.index, this.step + 1);
+      else if (this.index < this.slides.length - 1) this.go(this.index + 1, 0);
+    }
+    prev() {
+      if (this.step > 0) this.go(this.index, this.step - 1);
+      else if (this.index > 0) this.go(this.index - 1, this.slides[this.index - 1].stepCount, { animate: true, back: true });
+    }
+    go(i, step = 0, opts = {}) {
+      i = clamp(i, 0, this.slides.length - 1);
+      const animate = opts.animate !== false;
+      const from = this.slide, to = this.slides[i];
+      const changing = from !== to || !to.el.classList.contains('is-active');
+      if (changing) {
+        if (from && from !== to) { from.leave(); this.transitionOut(from, i > from.index, animate); }
+        this.index = i;
+        to.el.classList.add('is-active');
+        to.el.removeAttribute('aria-hidden');
+        this.step = clamp(step, 0, to.stepCount);
+        to.setStep(this.step, { animate: false });
+        to.enter(this.step);
+        if (from !== to) this.transitionIn(to, i >= (from ? from.index : 0), animate);
+      } else {
+        const fwd = step > this.step;
+        this.step = clamp(step, 0, to.stepCount);
+        to.setStep(this.step, { animate: animate && fwd, forward: fwd });
+      }
+      this.slides.forEach(s => { if (s !== to) s.el.setAttribute('aria-hidden', 'true'); });
+      const total = this.slides.reduce((a, s) => a + s.stepCount + 1, 0);
+      const done = this.slides.slice(0, this.index).reduce((a, s) => a + s.stepCount + 1, 0) + this.step + 1;
+      this.bar.style.setProperty('--p', total > 1 ? (done - 1) / (total - 1) : 1);
+      this.notesEl.innerHTML = `<h4>Notes · ${this.index + 1}. ${to.title}</h4>${to.notes || '<i>No notes.</i>'}`;
+      this.writeHash();
+      this.presenter.update();
+      document.dispatchEvent(new CustomEvent('deck:change', { detail: { index: this.index, step: this.step, slide: to } }));
+    }
+    transitionIn(s, forward, animate) {
+      if (!animate) return;
+      const kind = s.el.dataset.transition || 'slide';
+      const dx = forward ? 1 : -1;
+      const frames = {
+        slide: [{ opacity: 0, transform: `translateX(${80 * dx}px)` }, { opacity: 1, transform: 'none' }],
+        fade: [{ opacity: 0 }, { opacity: 1 }],
+        zoom: [{ opacity: 0, transform: 'scale(.94)', filter: 'blur(6px)' }, { opacity: 1, transform: 'none', filter: 'none' }],
+        rise: [{ opacity: 0, transform: 'translateY(60px)' }, { opacity: 1, transform: 'none' }],
+        none: null,
+      }[kind];
+      if (frames) Motion.play(s.el, frames, { duration: 700, easing: Motion.ease.out });
+    }
+    transitionOut(s, forward, animate) {
+      s.el.classList.remove('is-active');
+      if (!animate || Motion.reduced) return;
+      s.el.classList.add('is-leaving');
+      const dx = forward ? -1 : 1;
+      const a = Motion.play(s.el, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translateX(${40 * dx}px)` }], { duration: 420, easing: Motion.ease.inOut });
+      const done = () => s.el.classList.remove('is-leaving');
+      if (a) a.onfinish = done; else done();
+    }
+    toggleOverview() {
+      const on = this.root.classList.toggle('is-overview');
+      if (on) {
+        this.slides.forEach(s => s.setStep(s.stepCount, { animate: false, static: true }));
+        this.slide.el.scrollIntoView({ block: 'center' });
+      } else {
+        this.slides.forEach(s => { if (s !== this.slide) s.leave(); });
+        this.slide.setStep(this.step, { animate: false });
+      }
+    }
+    preparePrint(on) {
+      this.printing = on;
+      document.documentElement.classList.toggle('printing', on);
+      if (on) this.slides.forEach(s => { s.leave(); s.setStep(s.stepCount, { animate: false, static: true, force: true }); });
+      else this.slides.forEach((s, i) => { s.setStep(i === this.index ? this.step : 0, { animate: false }); if (i === this.index) s.enter(this.step); });
+    }
+  }
+
+  /* ---------------------------------------------------------------- export */
+  Deck.register('.diagram', (el, s) => Diagram.create(el, s));
+  Deck.register('pre.code', CodeBlock);
+  Deck.register('.count[data-to]', CountUp);
+
+  window.DeckKit = { Deck, Slide, Build, Component, Diagram, FlowDiagram, SequenceDiagram, CodeBlock, CountUp, FlowAnimator, PresenterView, Motion };
+  const boot = () => { const root = document.querySelector('.deck'); if (root && !window.deck) window.deck = new Deck(root); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+})();
